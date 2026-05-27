@@ -860,6 +860,11 @@ export default function Home() {
   const topThree = liveLeaderboard.slice(0, 3);
   const currentProfileScore = liveLeaderboard.find((user) => user.id === currentProfile?.id)?.points ?? predictionScore;
 
+  useEffect(() => {
+    document.documentElement.scrollLeft = 0;
+    document.body.scrollLeft = 0;
+  }, [activeTab, currentProfile?.id]);
+
   function updatePrediction(match: Fixture, side: "home" | "away", value: number) {
     if (lockedDates.includes(match.date)) return;
 
