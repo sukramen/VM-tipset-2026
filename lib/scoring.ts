@@ -14,7 +14,7 @@ const sameText = (prediction?: string, actual?: string) => {
 export const stageMultipliers: Record<MatchStage, number> = {
   Gruppspel: 1,
   Sextondelsfinal: 1,
-  Åttondelsfinal: 1.2,
+  Åttondelsfinal: 1.25,
   Kvartsfinal: 1.5,
   Semifinal: 2,
   Bronsmatch: 2,
@@ -26,12 +26,12 @@ export function scoreGroupPrediction(prediction: Prediction, actual?: ScoreLine)
 
   let points = 0;
   if (sign(prediction.score) === sign(actual)) points += 3;
-  if (prediction.score.home === actual.home && prediction.score.away === actual.away) points += 2;
+  if (prediction.score.home === actual.home && prediction.score.away === actual.away) points += 3;
   if (prediction.score.home - prediction.score.away === actual.home - actual.away) points += 1;
   if (prediction.score.home === actual.home) points += 1;
   if (prediction.score.away === actual.away) points += 1;
 
-  return Math.min(points, 7);
+  return Math.min(points, 8);
 }
 
 export function scoreKnockoutPrediction(
@@ -47,7 +47,7 @@ export function scoreKnockoutPrediction(
   const actualSign = sign(actual);
   if (prediction.winner && actualWinner && prediction.winner === actualWinner) points += 5;
   if (predictedSign === actualSign) points += 3;
-  if (prediction.score.home === actual.home && prediction.score.away === actual.away) points += 2;
+  if (prediction.score.home === actual.home && prediction.score.away === actual.away) points += 3;
 
   return Math.round(points * stageMultipliers[stage]);
 }
@@ -69,20 +69,20 @@ export function scoreBonusPrediction(
 ) {
   let points = 0;
 
-  if (sameText(prediction.worldChampion, actual.worldChampion)) points += 20;
+  if (sameText(prediction.worldChampion, actual.worldChampion)) points += 15;
   const actualFinalists = [normalize(actual.finalistOne), normalize(actual.finalistTwo)].filter(Boolean);
   const predictedFinalists = [normalize(prediction.finalistOne), normalize(prediction.finalistTwo)].filter(Boolean);
-  points += predictedFinalists.filter((team, index) => actualFinalists.includes(team) && predictedFinalists.indexOf(team) === index).length * 10;
-  if (sameText(prediction.topScorer, actual.topScorer)) points += 15;
-  if (sameText(prediction.mostGroupGoals, actual.mostGroupGoals)) points += 10;
-  if (sameText(prediction.surpriseTeam, actual.surpriseTeam)) points += 10;
+  points += predictedFinalists.filter((team, index) => actualFinalists.includes(team) && predictedFinalists.indexOf(team) === index).length * 8;
+  if (sameText(prediction.topScorer, actual.topScorer)) points += 10;
+  if (sameText(prediction.mostGroupGoals, actual.mostGroupGoals)) points += 8;
+  if (sameText(prediction.surpriseTeam, actual.surpriseTeam)) points += 8;
   if (
     typeof prediction.totalTournamentGoals === "number" &&
     typeof actual.totalTournamentGoals === "number" &&
     closestTotalGoalDelta !== undefined &&
     Math.abs(prediction.totalTournamentGoals - actual.totalTournamentGoals) === closestTotalGoalDelta
   ) {
-    points += 10;
+    points += 8;
   }
 
   return points;

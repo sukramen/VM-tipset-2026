@@ -71,3 +71,15 @@ body {
   border-radius: inherit;
   background: linear-gradient(135deg, rgba(124, 255, 107, 0.55), rgba(85, 214, 255, 0.1), rgba(255, 184, 77, 0.35));
 }
+
+.profile-gate-panel {
+  width: min(900px, calc(100vw - 2rem));
+  max-width: 900px;
+  margin-inline: auto;
+}
+
+@media (max-width: 640px) {
+  .profile-gate-panel {
+    width: min(100%, calc(100vw - 1rem));
+  }
+}

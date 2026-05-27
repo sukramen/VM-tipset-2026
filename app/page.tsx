@@ -8,7 +8,6 @@ import {
   Expand,
   X,
   Crown,
-  Download,
   Lock,
   Medal,
   Trash2,
@@ -55,6 +54,7 @@ type Tab = (typeof tabs)[number];
 const stageOrder: MatchStage[] = ["Sextondelsfinal", "Åttondelsfinal", "Kvartsfinal", "Semifinal", "Bronsmatch", "Final"];
 const adminStageOrder: MatchStage[] = ["Gruppspel", ...stageOrder];
 const groupLetters = Object.keys(groups) as GroupLetter[];
+const fixtureDates = Array.from(new Set(fixtures.map((fixture) => fixture.date))).sort();
 const predictionsVersion = "5";
 const bonusVersion = "1";
 const requireAdminPassword = false;
@@ -73,13 +73,13 @@ const defaultPredictions = fixtures.map((match) => ({
 const defaultBonusAnswers: BonusPrediction = {};
 
 const bonusFieldLabels: Array<{ key: keyof BonusPrediction; label: string; points: string; type?: "number" }> = [
-  { key: "worldChampion", label: "Världsmästare", points: "20p" },
-  { key: "finalistOne", label: "Finalist 1", points: "10p" },
-  { key: "finalistTwo", label: "Finalist 2", points: "10p" },
-  { key: "topScorer", label: "Skytteligavinnare", points: "15p" },
-  { key: "mostGroupGoals", label: "Flest mål i gruppspelet", points: "10p" },
-  { key: "surpriseTeam", label: "Skrällag", points: "10p" },
-  { key: "totalTournamentGoals", label: "Totalt antal mål i turneringen", points: "10p", type: "number" },
+  { key: "worldChampion", label: "Världsmästare", points: "15p" },
+  { key: "finalistOne", label: "Finalist 1", points: "8p per lag" },
+  { key: "finalistTwo", label: "Finalist 2", points: "8p per lag" },
+  { key: "topScorer", label: "Skytteligavinnare", points: "10p" },
+  { key: "mostGroupGoals", label: "Flest mål i gruppspel", points: "8p" },
+  { key: "surpriseTeam", label: "Skrällag", points: "8p" },
+  { key: "totalTournamentGoals", label: "Närmast totalt antal mål", points: "8p", type: "number" },
 ];
 
 function logStorageError(message: string, error: unknown) {
@@ -158,8 +158,7 @@ function formatDate(date: string) {
   return new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" }).format(new Date(date));
 }
 
-function nextFixture() {
-  const now = new Date();
+function nextFixture(now = new Date()) {
   return fixtures.find((fixture) => new Date(`${fixture.date}T${fixture.kickoffTime}:00`) > now) ?? fixtures[0];
 }
 
@@ -172,20 +171,31 @@ function getSwedishDateKey(date = new Date()) {
   }).format(date);
 }
 
-function getMatchDayPanel() {
-  const today = getSwedishDateKey();
-  const todayMatches = fixtures
-    .filter((fixture) => fixture.date === today)
+function getMatchesByDate(date: string) {
+  return fixtures
+    .filter((fixture) => fixture.date === date)
     .sort((a, b) => a.kickoffTime.localeCompare(b.kickoffTime) || a.id - b.id);
+}
+
+function getDashboardNextFixture(previewDate?: string, now = new Date()) {
+  if (previewDate) return getMatchesByDate(previewDate)[0] ?? nextFixture(now);
+  return nextFixture(now);
+}
+
+function getMatchDayPanel(previewDate?: string, now = new Date()) {
+  if (previewDate) {
+    return { label: "Testad matchdag", date: previewDate, matches: getMatchesByDate(previewDate) };
+  }
+
+  const today = getSwedishDateKey(now);
+  const todayMatches = getMatchesByDate(today);
 
   if (todayMatches.length > 0) {
     return { label: "Dagens matcher", date: today, matches: todayMatches };
   }
 
-  const next = nextFixture();
-  const nextMatches = fixtures
-    .filter((fixture) => fixture.date === next.date)
-    .sort((a, b) => a.kickoffTime.localeCompare(b.kickoffTime) || a.id - b.id);
+  const next = nextFixture(now);
+  const nextMatches = getMatchesByDate(next.date);
 
   return { label: "Nästa matchdag", date: next.date, matches: nextMatches };
 }
@@ -653,6 +663,8 @@ export default function Home() {
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [lockedDates, setLockedDates] = useState<string[]>([]);
+  const [homePreviewDate, setHomePreviewDate] = useState("");
+  const [clockTick, setClockTick] = useState(() => Date.now());
   const [bonusAnswers, setBonusAnswers] = useState<BonusPrediction>(defaultBonusAnswers);
   const [officialBonusAnswers, setOfficialBonusAnswers] = useState<BonusPrediction>(defaultBonusAnswers);
   const [allPredictionsByProfile, setAllPredictionsByProfile] = useState<Record<string, Prediction[]>>({});
@@ -669,6 +681,11 @@ export default function Home() {
   useEffect(() => {
     allBonusRef.current = allBonusByProfile;
   }, [allBonusByProfile]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockTick(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -820,8 +837,9 @@ export default function Home() {
     [lockedDates, predictions, resultWinners, results],
   );
 
-  const next = nextFixture();
-  const matchDayPanel = useMemo(() => getMatchDayPanel(), []);
+  const dashboardNow = useMemo(() => new Date(clockTick), [clockTick]);
+  const next = useMemo(() => getDashboardNextFixture(homePreviewDate || undefined, dashboardNow), [dashboardNow, homePreviewDate]);
+  const matchDayPanel = useMemo(() => getMatchDayPanel(homePreviewDate || undefined, dashboardNow), [dashboardNow, homePreviewDate]);
   const thirdPlaced = rankThirdPlaced(results).slice(0, 8);
   const visibleTabs = currentProfile?.role === "admin" ? tabs : tabs.filter((tab) => tab !== "Admin");
   const phaseStatus = useMemo(() => getPhaseStatus(lockedDates), [lockedDates]);
@@ -1211,7 +1229,7 @@ export default function Home() {
           </div>
           <div className="min-w-0 flex-1 sm:flex-none">
             <p className="text-sm text-white/60">{currentProfile.name}</p>
-            <p className="font-display text-2xl font-bold">{currentProfileScore} p</p>
+            {currentProfile.role !== "admin" ? <p className="font-display text-2xl font-bold">{currentProfileScore} p</p> : null}
             {currentProfile.role === "admin" ? (
               <p className="text-xs font-bold text-white/40">
                 {storageMode === "supabase" ? "Databas aktiv" : "Lokal fallback"}
@@ -1260,7 +1278,7 @@ export default function Home() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -18 }}
           transition={{ duration: 0.28 }}
-          className="mx-auto w-full max-w-7xl min-w-0 overflow-x-hidden"
+          className="mx-auto w-full max-w-7xl min-w-0"
         >
           {activeTab === "Hem" && (
             <Dashboard
@@ -1312,6 +1330,8 @@ export default function Home() {
               resetDevData={resetDevData}
               lockedDates={lockedDates}
               toggleLockedDate={toggleLockedDate}
+              homePreviewDate={homePreviewDate}
+              setHomePreviewDate={setHomePreviewDate}
               officialBonusAnswers={officialBonusAnswers}
               updateOfficialBonusAnswer={updateOfficialBonusAnswer}
             />
@@ -1365,7 +1385,7 @@ function ProfileGate({
       <motion.section
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
-        className="neon-border w-full max-w-4xl rounded-[2rem]"
+        className="profile-gate-panel neon-border rounded-[2rem]"
       >
         <div className="glass rounded-[2rem] p-6 sm:p-8">
           <p className="font-display text-xs uppercase tracking-[0.45em] text-volt">VM-Tipset 2026</p>
@@ -1486,10 +1506,77 @@ function Dashboard({
 }) {
   return (
     <div className="grid w-full min-w-0 max-w-full gap-5">
-      <div className="grid w-full min-w-0 max-w-full items-start gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,.75fr)] lg:gap-5">
-        <section className="glass relative w-full min-w-0 max-w-full overflow-hidden rounded-[1.5rem] p-5 ring-1 ring-volt/25 sm:rounded-[2rem] sm:p-7">
+      <div className="grid w-full min-w-0 max-w-full gap-4 lg:hidden">
+        <section className="glass w-full min-w-0 max-w-full rounded-[1.5rem] p-4 ring-1 ring-volt/25">
+          <p className="text-xs uppercase tracking-[0.3em] text-cyan">Live leaderboard</p>
+          <div className="mt-4 space-y-3">
+            {topThree.map((user, index) => (
+              <motion.div
+                key={user.id}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.06 }}
+                className={classNames(
+                  "grid min-w-0 grid-cols-[44px_1fr_auto] items-center gap-3 rounded-2xl border p-3",
+                  index === 0 ? "border-volt/50 bg-volt/10" : "border-white/10 bg-white/5",
+                )}
+              >
+                <div className="grid h-11 w-11 place-items-center rounded-xl bg-white/10 font-display font-black">
+                  {user.avatar}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-white/45">#{index + 1}</p>
+                  <h2 className="truncate font-display text-lg font-black">{user.name}</h2>
+                  <p className="flex items-center gap-1 text-xs text-white/55">
+                    <ChevronUp size={14} className="text-volt" />
+                    {user.exact} exakta resultat
+                  </p>
+                </div>
+                <div className="text-right">
+                  {index === 0 ? <Crown size={18} className="ml-auto text-flare" /> : <Medal size={18} className="ml-auto text-cyan" />}
+                  <p className="mt-1 font-display text-2xl font-black text-volt">{user.points}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+          <div className="mt-5 flex items-end justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-[0.24em] text-volt">Poäng per dag</p>
+              <p className="mt-1 text-xs text-white/50">Räknas när admin låst matchdagen.</p>
+            </div>
+            <p className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-sm text-white/65">
+              {dailyScoreData[dailyScoreData.length - 1]?.points ?? 0} p
+            </p>
+          </div>
+          <PointsAreaChart data={dailyScoreData} heightClass="h-44" />
+        </section>
+
+        <Metric icon={<CalendarClock />} label="Nästa match" value={`${formatDate(next.date)} ${next.kickoffTime} · ${teamLabel(next.home)} - ${teamLabel(next.away)}`} />
+
+        <div className="glass w-full min-w-0 max-w-full rounded-[1.5rem] p-4">
+          <div className="flex items-end justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-[0.24em] text-white/50">{matchDayPanel.label}</p>
+              <p className="mt-1 text-sm text-white/45">{formatDate(matchDayPanel.date)} · svensk tid</p>
+            </div>
+            <p className="shrink-0 rounded-full bg-white/10 px-3 py-1 text-sm text-white/60">{matchDayPanel.matches.length}</p>
+          </div>
+          <div className="mt-4 space-y-2">
+            {matchDayPanel.matches.map((match) => (
+              <div key={match.id} className="rounded-2xl bg-white/5 p-3">
+                <p className="font-display text-lg font-black text-volt">{match.kickoffTime}</p>
+                <p className="mt-1 truncate font-bold">{teamLabel(match.home)}</p>
+                <p className="truncate font-bold">{teamLabel(match.away)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="hidden w-full min-w-0 max-w-full items-start gap-4 lg:grid lg:grid-cols-[minmax(0,1.25fr)_minmax(0,.75fr)] lg:gap-5">
+        <section className="glass relative w-full min-w-0 max-w-full rounded-[1.5rem] p-4 ring-1 ring-volt/25 sm:rounded-[2rem] sm:p-7">
             <p className="text-xs uppercase tracking-[0.3em] text-cyan sm:text-sm sm:tracking-[0.35em]">Live leaderboard</p>
-            <div className="mt-4 grid w-full min-w-0 max-w-full grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3 lg:grid-cols-3 lg:gap-4">
+            <div className="mt-4 grid w-full min-w-0 max-w-full grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3 lg:gap-4">
               {topThree.map((user, index) => (
                 <motion.div
                   key={user.id}
@@ -1526,29 +1613,12 @@ function Dashboard({
                 {dailyScoreData[dailyScoreData.length - 1]?.points ?? 0} p totalt
               </p>
             </div>
-            <div className="mt-4 h-44 w-full min-w-0 sm:h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={dailyScoreData}>
-                  <defs>
-                    <linearGradient id="score" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="5%" stopColor="#7CFF6B" stopOpacity={0.55} />
-                      <stop offset="95%" stopColor="#7CFF6B" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="rgba(255,255,255,.08)" />
-                  <XAxis dataKey="date" stroke="rgba(255,255,255,.55)" />
-                  <YAxis stroke="rgba(255,255,255,.55)" />
-                  <Tooltip contentStyle={{ background: "#06130f", border: "1px solid rgba(255,255,255,.12)" }} />
-                  <Area name="Totalpoäng" type="monotone" dataKey="points" stroke="#7CFF6B" fill="url(#score)" strokeWidth={3} />
-                  <Area name="Dagspoäng" type="monotone" dataKey="dayPoints" stroke="#55D6FF" fill="transparent" strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+            <PointsAreaChart data={dailyScoreData} heightClass="h-44 sm:h-56" />
         </section>
 
 
         <aside className="grid w-full min-w-0 content-start gap-5">
-        <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
+        <div className="glass hidden rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5 lg:block">
           <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Aktuell fas</p>
           <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">{phaseStatus.label}</h2>
           <p className="mt-2 text-sm leading-relaxed text-white/60">{phaseStatus.description}</p>
@@ -1586,7 +1656,7 @@ function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; 
   return (
     <div className="glass flex items-center gap-3 rounded-[1.5rem] p-4 sm:gap-4 sm:rounded-[2rem] sm:p-5">
       <div className="shrink-0 rounded-2xl bg-cyan/15 p-3 text-cyan">{icon}</div>
-      <div>
+      <div className="min-w-0">
         <p className="text-sm text-white/50">{label}</p>
         <p className="break-words font-display text-base font-bold sm:text-lg">{value}</p>
       </div>
@@ -1594,49 +1664,77 @@ function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; 
   );
 }
 
+function PointsAreaChart({ data, heightClass }: { data: Array<{ date: string; points: number; dayPoints: number }>; heightClass: string }) {
+  return (
+    <div className={classNames("mt-4 w-full min-w-0 max-w-full overflow-hidden", heightClass)}>
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 6, right: 4, bottom: 0, left: -28 }}>
+          <defs>
+            <linearGradient id="score" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="5%" stopColor="#7CFF6B" stopOpacity={0.55} />
+              <stop offset="95%" stopColor="#7CFF6B" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid stroke="rgba(255,255,255,.08)" />
+          <XAxis dataKey="date" stroke="rgba(255,255,255,.55)" tick={{ fontSize: 11 }} tickMargin={6} />
+          <YAxis stroke="rgba(255,255,255,.55)" tick={{ fontSize: 11 }} width={34} />
+          <Tooltip contentStyle={{ background: "#06130f", border: "1px solid rgba(255,255,255,.12)" }} />
+          <Area name="Totalpoäng" type="monotone" dataKey="points" stroke="#7CFF6B" fill="url(#score)" strokeWidth={3} />
+          <Area name="Dagspoäng" type="monotone" dataKey="dayPoints" stroke="#55D6FF" fill="transparent" strokeWidth={2} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function RulesPanel() {
   const matchRules: Array<[string, string | string[]]> = [
     ["Rätt tecken (1X2)", "3 poäng"],
-    ["Exakt resultat", "+2 poäng"],
     ["Rätt målskillnad", "+1 poäng"],
     ["Rätt antal mål per lag", "+1 poäng per lag"],
-    ["Max per gruppspelsmatch", "7 poäng"],
+    ["Exakt resultat", "+3 poäng"],
+    ["Max per gruppspelsmatch", "8 poäng"],
   ];
   const knockoutRules: Array<[string, string | string[]]> = [
     ["Rätt lag vidare", "5 poäng"],
     ["Rätt fulltidstecken", "3 poäng"],
-    ["Exakt fulltidresultat", "+2 poäng"],
-    ["Multiplikatorer", ["16-del x1", "8-del x1.2", "kvart x1.5", "semi x2", "final x3"]],
+    ["Exakt fulltidresultat", "+3 poäng"],
+    ["Multiplikatorer", ["16-del x1", "8-del x1.25", "kvart x1.5", "semi x2", "final x3"]],
   ];
   const bonusRules: Array<[string, string | string[]]> = [
-    ["Världsmästare", "20 poäng"],
-    ["Finalist", "10 poäng per lag"],
-    ["Skytteligavinnare", "15 poäng"],
-    ["Flest mål i gruppspelet", "10 poäng"],
-    ["Skrällag", "10 poäng"],
-    ["Närmast totalt antal mål", "10 poäng"],
+    ["Världsmästare", "15 poäng"],
+    ["Finalist", "8 poäng per lag"],
+    ["Skytteligavinnare", "10 poäng"],
+    ["Flest mål i gruppspel", "8 poäng"],
+    ["Skrällag", "8 poäng"],
+    ["Närmast totalt antal mål", "8 poäng"],
   ];
   const distribution = [
-    ["Gruppspel", "Matchpoäng", "3 + 2 + 1 + 1 + 1", "Max 7"],
-    ["Slutspel", "Matchpoäng", "5 + 3 + 2", "Multipliceras per runda"],
-    ["Bonus", "Facitpoäng", "Sex bonuskategorier", "Räknas när admin fyllt facit"],
+    ["Gruppspel", "Matchpoäng", "3 + 1 + 1 + 1 + 3", "Max 8"],
+    ["Slutspel", "Matchpoäng", "5 + 3 + 3", "Multipliceras per runda"],
+    ["Bonus", "Facitpoäng", "Lägre vikt", "Räknas när facit finns"],
   ];
 
   const ruleSection = (title: string, rows: Array<[string, string | string[]]>) => (
-    <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-      <h3 className="font-display text-xl font-black text-volt">{title}</h3>
+    <div className="flex h-full flex-col rounded-3xl border border-white/10 bg-black/20 p-4">
+      <h3 className="font-display text-lg font-black text-volt sm:text-xl">{title}</h3>
       <div className="mt-3 space-y-2">
         {rows.map(([label, value]) => (
           <div key={label} className="grid gap-1 rounded-2xl bg-white/[0.04] px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] sm:items-start sm:gap-4">
             <span className="text-white/75">{label}</span>
             {Array.isArray(value) ? (
-              <span className="grid grid-cols-2 gap-2 sm:ml-auto sm:max-w-[260px]">
+              <span className="grid grid-cols-1 gap-2 sm:col-span-2 sm:grid-cols-5">
                 {value.map((item) => (
                   <span
                     key={item}
-                    className="rounded-full border border-volt/15 bg-volt/10 px-3 py-1.5 text-center text-xs font-black text-volt"
+                    className="rounded-2xl border border-volt/20 bg-volt/10 px-3 py-2 text-center"
                   >
-                    {item}
+                    <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">
+                      {item.split(" x")[0]}
+                    </span>
+                    <span className="mt-1 block font-display text-sm font-black text-volt">
+                      x{item.split(" x")[1]}
+                    </span>
                   </span>
                 ))}
               </span>
@@ -1654,36 +1752,56 @@ function RulesPanel() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-flare sm:text-sm sm:tracking-[0.3em]">Regler</p>
-          <h2 className="font-display text-2xl font-black sm:text-3xl">Så räknas poängen</h2>
+          <h2 className="font-display text-2xl font-black sm:text-3xl">Poängsystem</h2>
         </div>
       </div>
       <div className="mt-5 grid gap-4 lg:grid-cols-3">
-        {ruleSection("Samtliga matcher", matchRules)}
+        {ruleSection("Gruppspel", matchRules)}
         {ruleSection("Slutspel", knockoutRules)}
         {ruleSection("Bonus", bonusRules)}
       </div>
-      <div className="mt-5 overflow-x-auto rounded-3xl border border-white/10 bg-black/20">
-        <table className="w-full min-w-[560px] text-left text-sm">
+      <div className="mt-5 rounded-3xl border border-volt/20 bg-volt/10 p-4">
+        <p className="text-xs font-bold uppercase tracking-[0.24em] text-volt">Exempel</p>
+        <p className="mt-2 text-sm leading-relaxed text-white/75">
+          Tippning: <span className="font-black text-white">2-1</span>, matchen slutar{" "}
+          <span className="font-black text-white">3-1</span> {"->"} rätt tecken + rätt mål för ett lag ={" "}
+          <span className="font-black text-volt">4 poäng</span>.
+        </p>
+      </div>
+      <div className="mt-5 space-y-2 sm:hidden">
+        {distribution.map(([label, total, matches, bonus]) => (
+          <div key={label} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <p className="font-display text-lg font-black">{label}</p>
+              <p className="shrink-0 rounded-full bg-volt/15 px-3 py-1 text-sm font-black text-volt">{total}</p>
+            </div>
+            <p className="mt-2 text-sm text-white/60">{matches}</p>
+            <p className="mt-1 text-xs text-white/40">{bonus}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 hidden overflow-hidden rounded-3xl border border-white/10 bg-black/20 sm:block">
+        <table className="w-full table-fixed text-left text-sm">
           <thead className="bg-white/10 text-white/55">
             <tr>
               {["Kategori", "Typ", "Regel", "Kommentar"].map((head) => (
-                <th key={head} className="px-4 py-3">{head}</th>
+                <th key={head} className="px-4 py-3 align-top">{head}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {distribution.map(([label, total, matches, bonus]) => (
               <tr key={label} className={classNames("border-t border-white/10", label === "Totalt" && "bg-volt/10 text-volt")}>
-                <td className="px-4 py-3 font-bold">{label}</td>
-                <td className="px-4 py-3 font-black">{total}</td>
-                <td className="px-4 py-3">{matches}</td>
-                <td className="px-4 py-3">{bonus}</td>
+                <td className="break-words px-4 py-3 font-bold">{label}</td>
+                <td className="break-words px-4 py-3 font-black">{total}</td>
+                <td className="break-words px-4 py-3">{matches}</td>
+                <td className="break-words px-4 py-3">{bonus}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="mt-4 text-sm leading-relaxed text-white/60">Inga poäng delas ut förrän admin har matat in resultat och låst matchdagen.</p>
+      <p className="mt-4 text-sm leading-relaxed text-white/60">Poäng räknas när admin har fyllt i resultat och låst matchdagen.</p>
     </section>
   );
 }
@@ -1975,8 +2093,8 @@ function GroupsPanel({
   const standings = buildStandings(results, selectedGroup);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[.65fr_.35fr] lg:gap-5">
-      <section className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
+    <div className="grid w-full min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(0,.65fr)_minmax(0,.35fr)] lg:gap-5">
+      <section className="glass w-full min-w-0 max-w-full rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
         <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible">
           {(Object.keys(groups) as GroupLetter[]).map((group) => (
             <button
@@ -1991,40 +2109,70 @@ function GroupsPanel({
             </button>
           ))}
         </div>
-        <div className="mt-5 overflow-x-auto rounded-3xl border border-white/10">
-          <table className="w-full min-w-[560px] text-left text-xs sm:min-w-[620px] sm:text-sm">
+        <div className="mt-5 overflow-hidden rounded-2xl border border-white/10 sm:hidden">
+          <div className="grid grid-cols-[minmax(0,1fr)_repeat(5,2rem)] items-center gap-2 border-b border-white/10 bg-white/[0.06] px-3 py-3 text-center text-xs font-bold uppercase tracking-[0.12em] text-white/45">
+            <span className="text-left">Lag</span>
+            <span>S</span>
+            <span>V</span>
+            <span>O</span>
+            <span>F</span>
+            <span className="text-volt">P</span>
+          </div>
+          {standings.map((team, index) => (
+            <div
+              key={team.team}
+              className="grid grid-cols-[minmax(0,1fr)_repeat(5,2rem)] items-center gap-2 border-b border-white/10 px-3 py-4 text-center text-sm last:border-b-0"
+            >
+              <div className="flex min-w-0 items-center gap-2 text-left">
+                <span className="w-4 shrink-0 text-white/45">{index + 1}</span>
+                <span className="min-w-0 truncate font-bold">{teamLabel(team.team)}</span>
+              </div>
+              <span>{team.played}</span>
+              <span>{team.won}</span>
+              <span>{team.drawn}</span>
+              <span>{team.lost}</span>
+              <span className="font-black text-volt">{team.points}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 hidden w-full max-w-full overflow-hidden rounded-3xl border border-white/10 sm:block">
+          <table className="w-full table-fixed text-left text-xs sm:text-sm">
+            <colgroup>
+              <col className="w-[34%]" />
+              <col span={8} />
+            </colgroup>
             <thead className="bg-white/10 text-white/55">
               <tr>
                 {["Lag", "M", "V", "O", "F", "GM", "IM", "+/-", "P"].map((head) => (
-                  <th key={head} className="px-4 py-3">{head}</th>
+                  <th key={head} className="px-2 py-3 sm:px-3">{head}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {standings.map((team, index) => (
                 <tr key={team.team} className="border-t border-white/10">
-                  <td className="px-4 py-4 font-bold">{index + 1}. {teamLabel(team.team)}</td>
-                  <td className="px-4 py-4">{team.played}</td>
-                  <td className="px-4 py-4">{team.won}</td>
-                  <td className="px-4 py-4">{team.drawn}</td>
-                  <td className="px-4 py-4">{team.lost}</td>
-                  <td className="px-4 py-4">{team.goalsFor}</td>
-                  <td className="px-4 py-4">{team.goalsAgainst}</td>
-                  <td className="px-4 py-4">{team.goalDifference}</td>
-                  <td className="px-4 py-4 font-black text-volt">{team.points}</td>
+                  <td className="truncate px-2 py-4 font-bold sm:px-3">{index + 1}. {teamLabel(team.team)}</td>
+                  <td className="px-2 py-4 sm:px-3">{team.played}</td>
+                  <td className="px-2 py-4 sm:px-3">{team.won}</td>
+                  <td className="px-2 py-4 sm:px-3">{team.drawn}</td>
+                  <td className="px-2 py-4 sm:px-3">{team.lost}</td>
+                  <td className="px-2 py-4 sm:px-3">{team.goalsFor}</td>
+                  <td className="px-2 py-4 sm:px-3">{team.goalsAgainst}</td>
+                  <td className="px-2 py-4 sm:px-3">{team.goalDifference}</td>
+                  <td className="px-2 py-4 font-black text-volt sm:px-3">{team.points}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </section>
-      <aside className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
+      <aside className="glass w-full min-w-0 max-w-full rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
         <p className="text-sm uppercase tracking-[0.3em] text-volt">Bästa treor</p>
         <div className="mt-4 space-y-3">
           {thirdPlaced.map(({ group, standing }, index) => (
-            <div key={group} className="flex items-center justify-between rounded-2xl bg-white/5 p-4">
-              <span>{index + 1}. Grupp {group} · {teamLabel(standing.team)}</span>
-              <span className="font-black text-volt">{standing.points}p</span>
+            <div key={group} className="flex min-w-0 items-center justify-between gap-3 rounded-2xl bg-white/5 p-4">
+              <span className="min-w-0 truncate">{index + 1}. Grupp {group} · {teamLabel(standing.team)}</span>
+              <span className="shrink-0 font-black text-volt">{standing.points}p</span>
             </div>
           ))}
         </div>
@@ -2314,6 +2462,8 @@ function AdminPanel({
   resetDevData,
   lockedDates,
   toggleLockedDate,
+  homePreviewDate,
+  setHomePreviewDate,
   officialBonusAnswers,
   updateOfficialBonusAnswer,
 }: {
@@ -2334,6 +2484,8 @@ function AdminPanel({
   resetDevData: () => void;
   lockedDates: string[];
   toggleLockedDate: (date: string) => void;
+  homePreviewDate: string;
+  setHomePreviewDate: (date: string) => void;
   officialBonusAnswers: BonusPrediction;
   updateOfficialBonusAnswer: (key: keyof BonusPrediction, value: string) => void;
 }) {
@@ -2359,6 +2511,7 @@ function AdminPanel({
     days.push({ date: match.date, matches: [match] });
     return days;
   }, []);
+  const homePreviewMatches = homePreviewDate ? getMatchesByDate(homePreviewDate) : [];
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] xl:gap-5">
@@ -2476,7 +2629,9 @@ function AdminPanel({
         <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
           <Trophy className="text-flare" />
           <h3 className="mt-3 font-display text-xl font-black">Bonusfacit</h3>
-          <p className="mt-2 text-sm text-white/60">Fylls i när facit finns. Leaderboard räknar om direkt.</p>
+          <p className="mt-2 text-sm text-white/60">
+            Fyll i slutligt facit. Bonus ger max 65 poäng och räknas om direkt.
+          </p>
           <div className="mt-5 space-y-3">
             {bonusFieldLabels.map((question) => (
               <label key={question.key} className="block">
@@ -2489,11 +2644,14 @@ function AdminPanel({
                   value={officialBonusAnswers[question.key] ?? ""}
                   onChange={(event) => updateOfficialBonusAnswer(question.key, event.target.value)}
                   className="mt-2 w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 outline-none focus:border-flare"
-                  placeholder="Facit"
+                  placeholder={question.type === "number" ? "Officiellt antal mål" : "Officiellt facit"}
                 />
               </label>
             ))}
           </div>
+          <p className="mt-4 rounded-2xl bg-white/5 px-4 py-3 text-xs leading-relaxed text-white/55">
+            Finalister ger 8 poäng per korrekt lag. Totala mål ger 8 poäng till den eller de spelare som är närmast facit.
+          </p>
         </div>
         <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
           <Users className="text-volt" />
@@ -2571,9 +2729,58 @@ function AdminPanel({
           </div>
         </div>
         <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
-          <Download className="text-cyan" />
-          <h3 className="mt-3 font-display text-xl font-black">Export</h3>
-          <p className="mt-2 text-sm text-white/60">Exportera predictions, resultat och poäng som CSV från Supabase i nästa backend-steg.</p>
+          <CalendarClock className="text-cyan" />
+          <h3 className="mt-3 font-display text-xl font-black">Testa hemskärmsdag</h3>
+          <p className="mt-2 text-sm text-white/60">
+            Välj en dag för att förhandsvisa vilka matcher som visas på Hem. Lämna tomt för live-läge.
+          </p>
+          <select
+            value={homePreviewDate}
+            onChange={(event) => setHomePreviewDate(event.target.value)}
+            className="mt-4 w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 font-bold outline-none focus:border-cyan"
+          >
+            <option value="">Följ livetid</option>
+            {fixtureDates.map((date) => (
+              <option key={date} value={date}>
+                {formatDate(date)} · {getMatchesByDate(date).length} matcher
+              </option>
+            ))}
+          </select>
+          <div className="mt-4 rounded-3xl border border-white/10 bg-black/20 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/45">
+                {homePreviewDate ? formatDate(homePreviewDate) : "Live"}
+              </p>
+              <p className="shrink-0 rounded-full bg-cyan/10 px-3 py-1 text-xs font-black text-cyan">
+                {homePreviewDate ? `${homePreviewMatches.length} matcher` : "Auto"}
+              </p>
+            </div>
+            {homePreviewDate ? (
+              <div className="mt-3 space-y-2">
+                {homePreviewMatches.slice(0, 4).map((match) => (
+                  <div key={match.id} className="grid grid-cols-[44px_1fr] gap-2 rounded-2xl bg-white/5 p-2 text-sm">
+                    <span className="font-display font-black text-volt">{match.kickoffTime}</span>
+                    <span className="min-w-0 truncate font-bold">
+                      {teamLabel(match.home)} - {teamLabel(match.away)}
+                    </span>
+                  </div>
+                ))}
+                {homePreviewMatches.length > 4 ? (
+                  <p className="text-xs text-white/45">+{homePreviewMatches.length - 4} matcher till visas på Hem.</p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-white/55">Hemsidan använder svensk dagens datum och uppdaterar panelen varje minut.</p>
+            )}
+          </div>
+          {homePreviewDate ? (
+            <button
+              onClick={() => setHomePreviewDate("")}
+              className="mt-4 w-full rounded-2xl bg-cyan/15 px-4 py-3 font-display font-black text-cyan transition hover:bg-cyan/20"
+            >
+              Återgå till livetid
+            </button>
+          ) : null}
         </div>
         <div className="glass rounded-[1.5rem] border-coral/20 p-4 sm:rounded-[2rem] sm:p-6">
           <Sparkles className="text-coral" />
@@ -2593,11 +2800,6 @@ function AdminPanel({
               Nolla devdata
             </button>
           </div>
-        </div>
-        <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
-          <Sparkles className="text-volt" />
-          <h3 className="mt-3 font-display text-xl font-black">Automatik</h3>
-          <p className="mt-2 text-sm text-white/60">Adminändringar räknar om leaderboard direkt via scoringfunktionen.</p>
         </div>
       </aside>
     </div>

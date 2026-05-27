@@ -253,24 +253,24 @@ export const fixtures: Fixture[] = [
 ];
 
 export const scoreRules = {
-  exactResult: 2,
+  exactResult: 3,
   correctGoalDifference: 1,
   correctGoalsPerTeam: 1,
   correctSign: 3,
-  maxMatchPoints: 7,
+  maxMatchPoints: 8,
   knockout: {
     correctTeamThrough: 5,
     correctWinner: 3,
-    exactResult: 2,
+    exactResult: 3,
     correctScenario: 1,
   },
   bonus: {
-    Världsmästare: 20,
-    Finalist: 10,
-    Skytteligavinnare: 15,
-    "Flest mål i gruppspelet": 10,
-    Skrällag: 10,
-    "Närmast totalt antal mål i turneringen": 10,
+    Världsmästare: 15,
+    Finalist: 8,
+    Skytteligavinnare: 10,
+    "Flest mål i gruppspelet": 8,
+    Skrällag: 8,
+    "Närmast totalt antal mål i turneringen": 8,
   },
 };
 
