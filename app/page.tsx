@@ -1194,7 +1194,7 @@ export default function Home() {
   }
 
   return (
-    <main className="relative min-h-screen w-full overflow-x-hidden px-3 pb-20 pt-3 text-white sm:px-6 lg:px-8">
+    <main className="relative min-h-screen w-full max-w-[100dvw] overflow-x-hidden px-3 pb-20 pt-3 text-white sm:px-6 lg:px-8">
       <div className="absolute inset-0 -z-10 bg-grid bg-[length:44px_44px] opacity-30" />
       <div className="absolute left-1/2 top-0 -z-10 h-80 w-80 -translate-x-1/2 rounded-full bg-volt/20 blur-3xl" />
 
@@ -1260,7 +1260,7 @@ export default function Home() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -18 }}
           transition={{ duration: 0.28 }}
-          className="mx-auto w-full max-w-7xl min-w-0"
+          className="mx-auto w-full max-w-7xl min-w-0 overflow-x-hidden"
         >
           {activeTab === "Hem" && (
             <Dashboard
@@ -1490,7 +1490,7 @@ function Dashboard({
         <section className="neon-border w-full min-w-0 overflow-hidden rounded-[1.5rem] sm:rounded-[2rem]">
           <div className="glass relative w-full min-w-0 p-5 sm:p-7">
             <p className="text-xs uppercase tracking-[0.3em] text-cyan sm:text-sm sm:tracking-[0.35em]">Live leaderboard</p>
-            <div className="mt-4 grid w-full min-w-0 gap-3 sm:grid-cols-3 sm:gap-4">
+            <div className="mt-4 grid w-full min-w-0 max-w-full gap-3 xl:grid-cols-3 xl:gap-4">
               {topThree.map((user, index) => (
                 <motion.div
                   key={user.id}
@@ -1498,7 +1498,7 @@ function Dashboard({
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.08 }}
                   className={classNames(
-                    "min-w-0 rounded-[1.35rem] border p-4 sm:rounded-3xl sm:p-5",
+                    "w-full min-w-0 max-w-full rounded-[1.35rem] border p-4 sm:rounded-3xl sm:p-5",
                     index === 0 ? "border-volt/50 bg-volt/10 shadow-glow" : "border-white/10 bg-white/5",
                   )}
                 >
