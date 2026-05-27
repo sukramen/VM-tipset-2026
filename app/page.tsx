@@ -486,7 +486,9 @@ function buildResolvedKnockoutFixtures({
       useSourceResultsForAdvancement ? sourceResults[match.id] : predictionMap.get(match.id)?.score,
     ]),
   );
-  const winnerByMatchId = new Map(fixtures.slice(72).map((match) => [match.id, advancementWinners[match.id]]));
+  const winnerByMatchId = new Map(
+    fixtures.slice(72).map((match) => [match.id, advancementWinners[match.id] ?? predictionMap.get(match.id)?.winner]),
+  );
   const resolvedById = new Map<number, ResolvedKnockoutFixture>();
   const usedThirdGroups = new Set<GroupLetter>();
   const previousStage: Partial<Record<MatchStage, MatchStage>> = {
@@ -542,7 +544,54 @@ function randomScore(): ScoreLine {
 }
 
 function randomPredictionsForFixtures() {
+  const predictionsByMatchId = new Map<number, Prediction>();
+  const sourceResults: Record<number, ScoreLine> = {};
+  const advancementWinners: Record<number, string> = {};
+  const allLockedDates = Array.from(new Set(fixtures.map((match) => match.date)));
+
+  fixtures
+    .filter((match) => match.stage === "Gruppspel")
+    .forEach((match) => {
+      const score = randomScore();
+      const winner = score.home > score.away ? match.home : score.home < score.away ? match.away : "Oavgjort";
+      sourceResults[match.id] = score;
+      predictionsByMatchId.set(match.id, { matchId: match.id, score, winner });
+    });
+
+  for (const stage of stageOrder) {
+    const resolvedKnockout = buildResolvedKnockoutFixtures({
+      sourceResults,
+      lockedDates: allLockedDates,
+      resolveGroupTeams: true,
+      useSourceResultsForAdvancement: true,
+      advancementWinners,
+    });
+
+    resolvedKnockout
+      .filter((match) => match.stage === stage)
+      .forEach((match) => {
+        const score = randomScore();
+        const home = match.resolvedHome ?? match.home;
+        const away = match.resolvedAway ?? match.away;
+        const winner =
+          score.home > score.away
+            ? home
+            : score.home < score.away
+              ? away
+              : Math.random() > 0.5
+                ? home
+                : away;
+
+        sourceResults[match.id] = score;
+        advancementWinners[match.id] = winner;
+        predictionsByMatchId.set(match.id, { matchId: match.id, score, winner });
+      });
+  }
+
   return fixtures.map((match) => {
+    const generated = predictionsByMatchId.get(match.id);
+    if (generated) return generated;
+
     const score = randomScore();
     const winner =
       score.home > score.away
@@ -1140,24 +1189,24 @@ export default function Home() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden px-4 pb-16 pt-4 text-white sm:px-6 lg:px-8">
+    <main className="relative min-h-screen overflow-hidden px-3 pb-20 pt-3 text-white sm:px-6 lg:px-8">
       <div className="absolute inset-0 -z-10 bg-grid bg-[length:44px_44px] opacity-30" />
       <div className="absolute left-1/2 top-0 -z-10 h-80 w-80 -translate-x-1/2 rounded-full bg-volt/20 blur-3xl" />
 
-      <header className="mx-auto flex max-w-7xl flex-col gap-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+      <header className="mx-auto flex max-w-7xl flex-col gap-4 py-3 sm:py-4 lg:flex-row lg:items-center lg:justify-between">
         <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }}>
-          <p className="font-display text-xs uppercase tracking-[0.45em] text-volt">VM-Tipset 2026</p>
-          <h1 className="mt-2 font-display text-4xl font-black tracking-tight sm:text-6xl">
+          <p className="font-display text-[10px] uppercase tracking-[0.35em] text-volt sm:text-xs sm:tracking-[0.45em]">VM-Tipset 2026</p>
+          <h1 className="mt-2 max-w-4xl font-display text-3xl font-black leading-[0.95] tracking-tight sm:text-5xl lg:text-6xl">
             Privat tipsspel med livekänsla.
           </h1>
         </motion.div>
-        <div className="glass flex items-center gap-3 rounded-3xl p-2">
-          <div className="rounded-2xl bg-volt/15 p-3 text-volt">
-            <ShieldCheck size={24} />
+        <div className="glass flex w-full flex-wrap items-center gap-2 rounded-3xl p-2 sm:w-auto sm:gap-3">
+          <div className="rounded-2xl bg-volt/15 p-2.5 text-volt sm:p-3">
+            <ShieldCheck size={22} />
           </div>
-          <div>
+          <div className="min-w-0 flex-1 sm:flex-none">
             <p className="text-sm text-white/60">{currentProfile.name}</p>
-            <p className="font-display text-2xl font-bold">{currentProfileScore} p</p>
+            <p className="font-display text-xl font-bold sm:text-2xl">{currentProfileScore} p</p>
             {currentProfile.role === "admin" ? (
               <p className="text-xs font-bold text-white/40">
                 {storageMode === "supabase" ? "Databas aktiv" : "Lokal fallback"}
@@ -1184,13 +1233,13 @@ export default function Home() {
         </div>
       </header>
 
-      <nav className="sticky top-3 z-20 mx-auto mb-6 flex max-w-7xl gap-2 overflow-x-auto rounded-full border border-white/10 bg-pitch/75 p-2 backdrop-blur-2xl">
+      <nav className="sticky top-2 z-20 mx-auto mb-5 flex max-w-7xl gap-2 overflow-x-auto rounded-3xl border border-white/10 bg-pitch/85 p-2 backdrop-blur-2xl sm:top-3 sm:rounded-full">
         {visibleTabs.map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={classNames(
-              "whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold transition",
+              "whitespace-nowrap rounded-full px-4 py-2.5 text-sm font-bold transition sm:py-2",
               activeTab === tab ? "bg-volt text-pitch shadow-glow" : "text-white/70 hover:bg-white/10 hover:text-white",
             )}
           >
@@ -1431,13 +1480,12 @@ function Dashboard({
   phaseStatus: ReturnType<typeof getPhaseStatus>;
 }) {
   return (
-    <div className="grid gap-5 lg:grid-cols-[1.25fr_.75fr]">
-      <div className="grid gap-5">
-        <section className="neon-border overflow-hidden rounded-[2rem]">
-          <div className="glass relative min-h-[430px] p-6 sm:p-8">
-            <div className="absolute right-8 top-8 hidden h-40 w-40 rounded-full border border-volt/30 lg:block" />
-            <p className="text-sm uppercase tracking-[0.35em] text-cyan">Live leaderboard</p>
-            <div className="mt-8 grid gap-4 md:grid-cols-3">
+    <div className="grid gap-5">
+      <div className="grid items-start gap-4 lg:grid-cols-[1.25fr_.75fr] lg:gap-5">
+        <section className="neon-border overflow-hidden rounded-[1.5rem] sm:rounded-[2rem]">
+          <div className="glass relative p-5 sm:p-7">
+            <p className="text-xs uppercase tracking-[0.3em] text-cyan sm:text-sm sm:tracking-[0.35em]">Live leaderboard</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3 sm:gap-4">
               {topThree.map((user, index) => (
                 <motion.div
                   key={user.id}
@@ -1445,7 +1493,7 @@ function Dashboard({
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.08 }}
                   className={classNames(
-                    "rounded-3xl border p-5",
+                    "rounded-[1.35rem] border p-4 sm:rounded-3xl sm:p-5",
                     index === 0 ? "border-volt/50 bg-volt/10 shadow-glow" : "border-white/10 bg-white/5",
                   )}
                 >
@@ -1455,9 +1503,9 @@ function Dashboard({
                     </div>
                     {index === 0 ? <Crown className="text-flare" /> : <Medal className="text-cyan" />}
                   </div>
-                  <p className="mt-6 text-white/60">#{index + 1}</p>
-                  <h2 className="font-display text-2xl font-black">{user.name}</h2>
-                  <p className="mt-3 text-4xl font-black text-volt">{user.points}</p>
+                  <p className="mt-4 text-white/60">#{index + 1}</p>
+                  <h2 className="font-display text-xl font-black sm:text-2xl">{user.name}</h2>
+                  <p className="mt-2 text-3xl font-black text-volt sm:text-4xl">{user.points}</p>
                   <p className="flex items-center gap-1 text-sm text-white/60">
                     <ChevronUp size={16} className="text-volt" />
                     {user.exact} exakta resultat
@@ -1465,7 +1513,7 @@ function Dashboard({
                 </motion.div>
               ))}
             </div>
-            <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-sm uppercase tracking-[0.28em] text-volt">Poäng per dag</p>
                 <p className="text-sm text-white/50">Poäng räknas först när admin har låst matchdagen.</p>
@@ -1474,7 +1522,7 @@ function Dashboard({
                 {dailyScoreData[dailyScoreData.length - 1]?.points ?? 0} p totalt
               </p>
             </div>
-            <div className="mt-4 h-56">
+            <div className="mt-4 h-44 sm:h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={dailyScoreData}>
                   <defs>
@@ -1495,18 +1543,16 @@ function Dashboard({
           </div>
         </section>
 
-        <RulesPanel />
-      </div>
 
-      <aside className="grid gap-5">
-        <div className="glass rounded-[2rem] p-5">
-          <p className="text-sm uppercase tracking-[0.3em] text-volt">Aktuell fas</p>
-          <h2 className="mt-2 font-display text-2xl font-black">{phaseStatus.label}</h2>
+        <aside className="grid content-start gap-5">
+        <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
+          <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Aktuell fas</p>
+          <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">{phaseStatus.label}</h2>
           <p className="mt-2 text-sm leading-relaxed text-white/60">{phaseStatus.description}</p>
           <p className="mt-4 rounded-full bg-volt/10 px-4 py-2 text-sm font-bold text-volt">Öppet: {phaseStatus.openLabel}</p>
         </div>
         <Metric icon={<CalendarClock />} label="Nästa match" value={`${formatDate(next.date)} ${next.kickoffTime} · ${teamLabel(next.home)} - ${teamLabel(next.away)}`} />
-        <div className="glass rounded-[2rem] p-6">
+        <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
           <div className="flex items-end justify-between gap-3">
             <div>
               <p className="text-sm uppercase tracking-[0.3em] text-white/50">{matchDayPanel.label}</p>
@@ -1516,27 +1562,30 @@ function Dashboard({
           </div>
           <div className="mt-4 space-y-3">
             {matchDayPanel.matches.map((match) => (
-              <div key={match.id} className="grid grid-cols-[52px_1fr_auto_1fr] items-center gap-2 rounded-2xl bg-white/5 p-3 text-sm">
+              <div key={match.id} className="grid grid-cols-[48px_1fr] gap-2 rounded-2xl bg-white/5 p-3 text-sm sm:grid-cols-[52px_1fr_auto_1fr] sm:items-center">
                 <span className="font-display font-black text-volt">{match.kickoffTime}</span>
                 <span className="font-bold">{teamLabel(match.home)}</span>
-                <span className="text-white/40">vs</span>
-                <span className="text-right font-bold">{teamLabel(match.away)}</span>
+                <span className="hidden text-white/40 sm:block">vs</span>
+                <span className="col-start-2 font-bold sm:col-auto sm:text-right">{teamLabel(match.away)}</span>
               </div>
             ))}
           </div>
         </div>
-      </aside>
+        </aside>
+      </div>
+
+      <RulesPanel />
     </div>
   );
 }
 
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="glass flex items-center gap-4 rounded-[2rem] p-5">
-      <div className="rounded-2xl bg-cyan/15 p-3 text-cyan">{icon}</div>
+    <div className="glass flex items-center gap-3 rounded-[1.5rem] p-4 sm:gap-4 sm:rounded-[2rem] sm:p-5">
+      <div className="shrink-0 rounded-2xl bg-cyan/15 p-3 text-cyan">{icon}</div>
       <div>
         <p className="text-sm text-white/50">{label}</p>
-        <p className="font-display text-lg font-bold">{value}</p>
+        <p className="break-words font-display text-base font-bold sm:text-lg">{value}</p>
       </div>
     </div>
   );
@@ -1598,14 +1647,14 @@ function RulesPanel() {
   );
 
   return (
-    <section className="glass rounded-[2rem] p-6 sm:p-7">
+    <section className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-7">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm uppercase tracking-[0.3em] text-flare">Regler</p>
-          <h2 className="font-display text-3xl font-black">Så räknas poängen</h2>
+          <p className="text-xs uppercase tracking-[0.28em] text-flare sm:text-sm sm:tracking-[0.3em]">Regler</p>
+          <h2 className="font-display text-2xl font-black sm:text-3xl">Så räknas poängen</h2>
         </div>
       </div>
-      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+      <div className="mt-5 grid gap-4 lg:grid-cols-3">
         {ruleSection("Samtliga matcher", matchRules)}
         {ruleSection("Slutspel", knockoutRules)}
         {ruleSection("Bonus", bonusRules)}
@@ -1673,19 +1722,19 @@ function PredictionsPanel({
 
   if (tipMode === "menu") {
     return (
-      <section className="glass rounded-[2rem] p-5 sm:p-8">
-        <p className="text-sm uppercase tracking-[0.35em] text-volt">Mitt tips</p>
-        <h2 className="mt-2 font-display text-4xl font-black">Vad vill du tippa?</h2>
+      <section className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-8">
+        <p className="text-xs uppercase tracking-[0.3em] text-volt sm:text-sm sm:tracking-[0.35em]">Mitt tips</p>
+        <h2 className="mt-2 font-display text-3xl font-black sm:text-4xl">Vad vill du tippa?</h2>
         <p className="mt-3 max-w-2xl text-white/60">
           Börja med gruppspelet eller gå vidare till slutspelsträdet. Du kan växla tillbaka hit när som helst via Tippa.
         </p>
 
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
+        <div className="mt-6 grid gap-3 md:grid-cols-2 md:gap-4">
           <button
             onClick={() => setTipMode("group")}
-            className="neon-border rounded-[2rem] text-left transition hover:-translate-y-1"
+            className="neon-border rounded-[1.5rem] text-left transition hover:-translate-y-1 sm:rounded-[2rem]"
           >
-            <div className="glass rounded-[2rem] p-6">
+            <div className="glass rounded-[1.5rem] p-5 sm:rounded-[2rem] sm:p-6">
               <div className="grid h-14 w-14 place-items-center rounded-2xl bg-volt/15 text-volt">
                 <Users />
               </div>
@@ -1702,7 +1751,7 @@ function PredictionsPanel({
           <button
             onClick={() => setTipMode("knockout")}
             disabled={!stageIsLocked("Gruppspel", lockedDates)}
-            className="rounded-[2rem] border border-white/10 bg-white/5 p-6 text-left transition hover:-translate-y-1 hover:border-flare/50 hover:bg-flare/10 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
+            className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-left transition hover:-translate-y-1 hover:border-flare/50 hover:bg-flare/10 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0 sm:rounded-[2rem] sm:p-6"
           >
             <div className="grid h-14 w-14 place-items-center rounded-2xl bg-flare/15 text-flare">
               <Trophy />
@@ -1738,12 +1787,12 @@ function PredictionsPanel({
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
-      <section className="glass rounded-[2rem] p-4 sm:p-6">
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-5 2xl:grid-cols-[minmax(0,1fr)_400px]">
+      <section className="glass rounded-[1.5rem] p-3 sm:rounded-[2rem] sm:p-6">
         <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
           <div>
-            <p className="text-sm uppercase tracking-[0.35em] text-volt">Mitt tips</p>
-            <h2 className="font-display text-3xl font-black">Gruppspel</h2>
+            <p className="text-xs uppercase tracking-[0.3em] text-volt sm:text-sm sm:tracking-[0.35em]">Mitt tips</p>
+            <h2 className="font-display text-2xl font-black sm:text-3xl">Gruppspel</h2>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -1762,14 +1811,14 @@ function PredictionsPanel({
               <section
                 id={`tips-grupp-${group}`}
                 key={group}
-                className="scroll-mt-28 overflow-hidden rounded-[1.75rem] border border-white/10 bg-black/20"
+                className="scroll-mt-24 overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/20 sm:scroll-mt-28 sm:rounded-[1.75rem]"
               >
-                <div className="border-b border-white/10 bg-white/[0.06] p-4">
+                <div className="border-b border-white/10 bg-white/[0.06] p-3 sm:p-4">
                   <div>
-                    <h3 className="font-display text-2xl font-black">Grupp {group}</h3>
+                    <h3 className="font-display text-xl font-black sm:text-2xl">Grupp {group}</h3>
                   </div>
                 </div>
-                <div className="grid gap-2 p-3">
+                <div className="grid gap-2 p-2 sm:p-3">
                   {groupMatches.map((match) => {
                     const prediction = predictionMap.get(match.id);
                     const isLocked = lockedDates.includes(match.date);
@@ -1777,7 +1826,7 @@ function PredictionsPanel({
                       <div
                         key={match.id}
                         className={classNames(
-                          "grid grid-cols-[40px_1fr] gap-3 rounded-3xl border border-white/10 bg-pitch/55 p-3 sm:grid-cols-[46px_1fr_auto_1fr]",
+                          "grid grid-cols-[34px_1fr] gap-2 rounded-2xl border border-white/10 bg-pitch/55 p-3 sm:grid-cols-[46px_1fr_auto_1fr] sm:gap-3 sm:rounded-3xl",
                           isLocked && "border-flare/25 bg-flare/5",
                         )}
                       >
@@ -1789,7 +1838,7 @@ function PredictionsPanel({
                             {isLocked ? " · Låst" : ""}
                           </p>
                         </div>
-                        <div className="col-span-2 flex items-center justify-center gap-2 sm:col-span-1">
+                        <div className="col-span-2 flex items-center justify-center gap-2 py-1 sm:col-span-1 sm:py-0">
                           <input
                             aria-label={`${match.home} mål`}
                             type="number"
@@ -1797,7 +1846,7 @@ function PredictionsPanel({
                             value={prediction?.score?.home ?? ""}
                             disabled={isLocked}
                             onChange={(event) => onChange(match, "home", Number(event.target.value))}
-                            className="h-12 w-16 rounded-2xl border border-white/10 bg-white/10 text-center font-display text-lg font-black outline-none focus:border-volt disabled:cursor-not-allowed disabled:opacity-45"
+                            className="h-12 w-20 rounded-2xl border border-white/10 bg-white/10 text-center font-display text-lg font-black outline-none focus:border-volt disabled:cursor-not-allowed disabled:opacity-45 sm:w-16"
                           />
                           <span className="text-white/40">-</span>
                           <input
@@ -1807,7 +1856,7 @@ function PredictionsPanel({
                             value={prediction?.score?.away ?? ""}
                             disabled={isLocked}
                             onChange={(event) => onChange(match, "away", Number(event.target.value))}
-                            className="h-12 w-16 rounded-2xl border border-white/10 bg-white/10 text-center font-display text-lg font-black outline-none focus:border-volt disabled:cursor-not-allowed disabled:opacity-45"
+                            className="h-12 w-20 rounded-2xl border border-white/10 bg-white/10 text-center font-display text-lg font-black outline-none focus:border-volt disabled:cursor-not-allowed disabled:opacity-45 sm:w-16"
                           />
                         </div>
                         <div className="col-span-2 text-left sm:col-span-1 sm:text-right">
@@ -1825,7 +1874,7 @@ function PredictionsPanel({
         </div>
       </section>
       <aside className="space-y-5">
-        <div className="glass rounded-[2rem] p-6 xl:p-7">
+        <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6 xl:p-7">
           <p className="text-sm uppercase tracking-[0.3em] text-cyan">Bonusfrågor</p>
           <div className="mt-5 space-y-4">
             {bonusFieldLabels.map((question) => (
@@ -1855,7 +1904,7 @@ function PredictionsPanel({
             </button>
           </div>
         </div>
-        <div className="glass rounded-[2rem] p-6">
+        <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
           <Lock className="text-flare" />
           <h3 className="mt-3 font-display text-xl font-black">Låsning</h3>
           <p className="mt-2 text-sm text-white/60">I produktion låses varje tips automatiskt vid matchstart via Supabase policy eller cron-jobb.</p>
@@ -1875,7 +1924,7 @@ function LivePredictionTable({ group, results }: { group: GroupLetter; results: 
         <p className="text-xs text-white/45">Uppdateras direkt från dina tips</p>
       </div>
       <div className="overflow-x-auto rounded-2xl border border-white/10">
-        <table className="w-full min-w-[560px] text-left text-xs sm:text-sm">
+        <table className="w-full min-w-[500px] text-left text-xs sm:min-w-[560px] sm:text-sm">
           <thead className="bg-black/25 text-white/45">
             <tr>
               {["#", "Lag", "M", "V", "O", "F", "GM", "IM", "+/-", "P"].map((head) => (
@@ -1923,15 +1972,15 @@ function GroupsPanel({
   const standings = buildStandings(results, selectedGroup);
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[.65fr_.35fr]">
-      <section className="glass rounded-[2rem] p-5">
-        <div className="flex flex-wrap gap-2">
+    <div className="grid gap-4 lg:grid-cols-[.65fr_.35fr] lg:gap-5">
+      <section className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible">
           {(Object.keys(groups) as GroupLetter[]).map((group) => (
             <button
               key={group}
               onClick={() => setSelectedGroup(group)}
               className={classNames(
-                "rounded-full px-4 py-2 text-sm font-bold",
+                "whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold",
                 selectedGroup === group ? "bg-cyan text-pitch" : "bg-white/10 text-white/65 hover:text-white",
               )}
             >
@@ -1939,8 +1988,8 @@ function GroupsPanel({
             </button>
           ))}
         </div>
-        <div className="mt-6 overflow-hidden rounded-3xl border border-white/10">
-          <table className="w-full min-w-[620px] text-left text-sm">
+        <div className="mt-5 overflow-x-auto rounded-3xl border border-white/10">
+          <table className="w-full min-w-[560px] text-left text-xs sm:min-w-[620px] sm:text-sm">
             <thead className="bg-white/10 text-white/55">
               <tr>
                 {["Lag", "M", "V", "O", "F", "GM", "IM", "+/-", "P"].map((head) => (
@@ -1966,7 +2015,7 @@ function GroupsPanel({
           </table>
         </div>
       </section>
-      <aside className="glass rounded-[2rem] p-5">
+      <aside className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
         <p className="text-sm uppercase tracking-[0.3em] text-volt">Bästa treor</p>
         <div className="mt-4 space-y-3">
           {thirdPlaced.map(({ group, standing }, index) => (
@@ -2010,11 +2059,11 @@ function KnockoutPredictionPanel({
   const completedCount = knockout.filter((match) => predictionMap.get(match.id)?.score).length;
 
   return (
-    <section className="glass rounded-[2rem] p-4 sm:p-6">
+    <section className="glass rounded-[1.5rem] p-3 sm:rounded-[2rem] sm:p-6">
       <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <p className="text-sm uppercase tracking-[0.35em] text-flare">Mitt tips</p>
-          <h2 className="font-display text-3xl font-black">Slutspel</h2>
+          <p className="text-xs uppercase tracking-[0.3em] text-flare sm:text-sm sm:tracking-[0.35em]">Mitt tips</p>
+          <h2 className="font-display text-2xl font-black sm:text-3xl">Slutspel</h2>
           <p className="mt-1 text-sm text-white/55">
             {resolveTeams
               ? `Öppen fas: ${openKnockoutStages.length > 0 ? openKnockoutStages.join(" & ") : "ingen"}`
@@ -2037,11 +2086,11 @@ function KnockoutPredictionPanel({
           const stageMatches = knockout.filter((match) => match.stage === stage);
 
           return (
-            <section key={stage} className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-black/20">
-              <div className="border-b border-white/10 bg-white/[0.06] p-4">
-                <p className="text-sm font-black uppercase tracking-[0.3em] text-flare">{stage}</p>
+            <section key={stage} className="overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/20 sm:rounded-[1.75rem]">
+              <div className="border-b border-white/10 bg-white/[0.06] p-3 sm:p-4">
+                <p className="text-xs font-black uppercase tracking-[0.28em] text-flare sm:text-sm sm:tracking-[0.3em]">{stage}</p>
               </div>
-              <div className="grid gap-2 p-3">
+              <div className="grid gap-2 p-2 sm:p-3">
                 {stageMatches.map((match) => {
                   const prediction = predictionMap.get(match.id);
                   const isLocked = lockedDates.includes(match.date);
@@ -2055,7 +2104,7 @@ function KnockoutPredictionPanel({
                     <div
                       key={match.id}
                       className={classNames(
-                        "grid grid-cols-[40px_1fr] gap-3 rounded-3xl border border-white/10 bg-pitch/55 p-3 sm:grid-cols-[46px_1fr_auto_1fr]",
+                        "grid grid-cols-[34px_1fr] gap-2 rounded-2xl border border-white/10 bg-pitch/55 p-3 sm:grid-cols-[46px_1fr_auto_1fr] sm:gap-3 sm:rounded-3xl",
                         isLocked && "border-flare/25 bg-flare/5",
                       )}
                     >
@@ -2067,7 +2116,7 @@ function KnockoutPredictionPanel({
                         </p>
                         {match.resolvedHome !== match.home && <p className="text-xs text-white/30">{teamLabel(match.home)}</p>}
                       </div>
-                      <div className="col-span-2 flex items-center justify-center gap-2 sm:col-span-1">
+                      <div className="col-span-2 flex items-center justify-center gap-2 py-1 sm:col-span-1 sm:py-0">
                         <input
                           aria-label={`${match.resolvedHome} mål`}
                           type="number"
@@ -2075,7 +2124,7 @@ function KnockoutPredictionPanel({
                           value={prediction?.score?.home ?? ""}
                           disabled={!isEditable}
                           onChange={(event) => onChange(match, "home", Number(event.target.value))}
-                          className="h-12 w-16 rounded-2xl border border-white/10 bg-white/10 text-center font-display text-lg font-black outline-none focus:border-flare disabled:cursor-not-allowed disabled:opacity-45"
+                          className="h-12 w-20 rounded-2xl border border-white/10 bg-white/10 text-center font-display text-lg font-black outline-none focus:border-flare disabled:cursor-not-allowed disabled:opacity-45 sm:w-16"
                         />
                         <span className="text-white/40">-</span>
                         <input
@@ -2085,7 +2134,7 @@ function KnockoutPredictionPanel({
                           value={prediction?.score?.away ?? ""}
                           disabled={!isEditable}
                           onChange={(event) => onChange(match, "away", Number(event.target.value))}
-                          className="h-12 w-16 rounded-2xl border border-white/10 bg-white/10 text-center font-display text-lg font-black outline-none focus:border-flare disabled:cursor-not-allowed disabled:opacity-45"
+                          className="h-12 w-20 rounded-2xl border border-white/10 bg-white/10 text-center font-display text-lg font-black outline-none focus:border-flare disabled:cursor-not-allowed disabled:opacity-45 sm:w-16"
                         />
                       </div>
                       <div className="col-span-2 text-left sm:col-span-1 sm:text-right">
@@ -2309,11 +2358,11 @@ function AdminPanel({
   }, []);
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <section className="glass rounded-[2rem] p-5">
-        <p className="text-sm uppercase tracking-[0.3em] text-coral">Adminpanel</p>
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] xl:gap-5">
+      <section className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
+        <p className="text-xs uppercase tracking-[0.28em] text-coral sm:text-sm sm:tracking-[0.3em]">Adminpanel</p>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <h2 className="font-display text-3xl font-black">Mata in riktiga resultat</h2>
+          <h2 className="font-display text-2xl font-black sm:text-3xl">Mata in riktiga resultat</h2>
           <p className="mt-1 text-sm text-white/55">Resultat ger poäng först när matchdagen är låst.</p>
           <p className="rounded-full bg-coral/10 px-4 py-2 text-sm font-bold text-coral">
             {Object.keys(results).length}/104 resultat
@@ -2337,8 +2386,8 @@ function AdminPanel({
 
         <div className="mt-3 grid gap-5">
           {adminFixturesByDate.map((day) => (
-            <section key={day.date} className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-black/20">
-              <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.06] px-4 py-3">
+            <section key={day.date} className="overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/20 sm:rounded-[1.75rem]">
+              <div className="flex flex-col gap-3 border-b border-white/10 bg-white/[0.06] px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
                 <div>
                   <p className="text-xs uppercase tracking-[0.28em] text-coral">Matchdag</p>
                   <h3 className="font-display text-xl font-black">{formatDate(day.date)}</h3>
@@ -2382,7 +2431,7 @@ function AdminPanel({
                       : matchWinner(home, away, result) ?? "";
 
                   return (
-                  <div key={match.id} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-3xl bg-white/5 p-3">
+                  <div key={match.id} className="grid gap-3 rounded-2xl bg-white/5 p-3 sm:grid-cols-[1fr_auto] sm:items-center sm:rounded-3xl">
                     <div>
                       <p className="font-bold">{teamLabel(home)} - {teamLabel(away)}</p>
                       <p className="text-sm text-white/45">
@@ -2395,7 +2444,7 @@ function AdminPanel({
                         </p>
                       ) : null}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                       <input type="number" min={0} value={results[match.id]?.home ?? 0} onChange={(event) => updateResult(match.id, "home", Number(event.target.value))} className="h-11 w-14 rounded-2xl bg-black/30 text-center font-black outline-none focus:ring-2 focus:ring-coral" />
                       <span>-</span>
                       <input type="number" min={0} value={results[match.id]?.away ?? 0} onChange={(event) => updateResult(match.id, "away", Number(event.target.value))} className="h-11 w-14 rounded-2xl bg-black/30 text-center font-black outline-none focus:ring-2 focus:ring-coral" />
@@ -2403,7 +2452,7 @@ function AdminPanel({
                         <select
                           value={selectedWinner}
                           onChange={(event) => updateResultWinner(match.id, event.target.value)}
-                          className="h-11 max-w-[180px] rounded-2xl bg-black/30 px-3 text-sm font-bold outline-none focus:ring-2 focus:ring-coral"
+                          className="h-11 min-w-0 flex-1 rounded-2xl bg-black/30 px-3 text-sm font-bold outline-none focus:ring-2 focus:ring-coral sm:max-w-[180px] sm:flex-none"
                           aria-label={`Vinnare match ${match.id}`}
                         >
                           <option value="">Välj vinnare</option>
@@ -2421,7 +2470,7 @@ function AdminPanel({
         </div>
       </section>
       <aside className="space-y-5">
-        <div className="glass rounded-[2rem] p-6">
+        <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
           <Trophy className="text-flare" />
           <h3 className="mt-3 font-display text-xl font-black">Bonusfacit</h3>
           <p className="mt-2 text-sm text-white/60">Fylls i när facit finns. Leaderboard räknar om direkt.</p>
@@ -2443,7 +2492,7 @@ function AdminPanel({
             ))}
           </div>
         </div>
-        <div className="glass rounded-[2rem] p-6">
+        <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
           <Users className="text-volt" />
           <h3 className="mt-3 font-display text-xl font-black">Hantera spelare</h3>
           <p className="mt-2 text-sm text-white/60">Lägg till spelare, öppna profiler eller nollställ lösenord.</p>
@@ -2518,12 +2567,12 @@ function AdminPanel({
             ))}
           </div>
         </div>
-        <div className="glass rounded-[2rem] p-6">
+        <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
           <Download className="text-cyan" />
           <h3 className="mt-3 font-display text-xl font-black">Export</h3>
           <p className="mt-2 text-sm text-white/60">Exportera predictions, resultat och poäng som CSV från Supabase i nästa backend-steg.</p>
         </div>
-        <div className="glass rounded-[2rem] border-coral/20 p-6">
+        <div className="glass rounded-[1.5rem] border-coral/20 p-4 sm:rounded-[2rem] sm:p-6">
           <Sparkles className="text-coral" />
           <h3 className="mt-3 font-display text-xl font-black">Utvecklarverktyg</h3>
           <p className="mt-2 text-sm text-white/60">Endast för test: fyller tips/resultat och låsningar eller nollställer allt.</p>
@@ -2542,7 +2591,7 @@ function AdminPanel({
             </button>
           </div>
         </div>
-        <div className="glass rounded-[2rem] p-6">
+        <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
           <Sparkles className="text-volt" />
           <h3 className="mt-3 font-display text-xl font-black">Automatik</h3>
           <p className="mt-2 text-sm text-white/60">Adminändringar räknar om leaderboard direkt via scoringfunktionen.</p>
@@ -2608,14 +2657,14 @@ function StatsPanel({ leaderboardRows }: { leaderboardRows: UserScore[] }) {
   );
 
   return (
-    <div className="grid gap-5 lg:grid-cols-2">
-      <section className="glass rounded-[2rem] p-5 lg:col-span-2">
+    <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
+      <section className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5 lg:col-span-2">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex items-center gap-3">
           <BarChart3 className="text-cyan" />
-            <h2 className="font-display text-2xl font-black">Poängutveckling per spelare</h2>
+            <h2 className="font-display text-xl font-black sm:text-2xl">Poängutveckling per spelare</h2>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <p className="text-sm text-white/50">X-axel: dagar · Y-axel: totalpoäng</p>
             <button
               onClick={() => setExpandedChart(true)}
@@ -2626,12 +2675,12 @@ function StatsPanel({ leaderboardRows }: { leaderboardRows: UserScore[] }) {
             </button>
           </div>
         </div>
-        {scoreChart(leaderboardRows, "h-80")}
+        {scoreChart(leaderboardRows, "h-64 sm:h-80")}
       </section>
       <AnimatePresence>
         {expandedChart ? (
           <motion.div
-            className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-md"
+            className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-3 backdrop-blur-md sm:p-4"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -2640,12 +2689,12 @@ function StatsPanel({ leaderboardRows }: { leaderboardRows: UserScore[] }) {
               initial={{ opacity: 0, scale: 0.94, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 12 }}
-              className="glass max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[2rem] p-5 sm:p-7"
+              className="glass max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-7"
             >
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="text-sm uppercase tracking-[0.3em] text-cyan">Förstorad graf</p>
-                  <h2 className="font-display text-3xl font-black">Poängutveckling per spelare</h2>
+                  <h2 className="font-display text-2xl font-black sm:text-3xl">Poängutveckling per spelare</h2>
                 </div>
                 <button
                   onClick={() => setExpandedChart(false)}
@@ -2674,7 +2723,7 @@ function StatsPanel({ leaderboardRows }: { leaderboardRows: UserScore[] }) {
                 })}
               </div>
               <div className="mt-5">
-                {scoreChart(visibleRows, "h-[58vh] min-h-[360px]")}
+                {scoreChart(visibleRows, "h-[55vh] min-h-[300px] sm:min-h-[360px]")}
               </div>
             </motion.section>
           </motion.div>
@@ -2686,15 +2735,15 @@ function StatsPanel({ leaderboardRows }: { leaderboardRows: UserScore[] }) {
         );
 
         return (
-          <section key={board.title} className="glass rounded-[2rem] p-5">
-            <p className="text-sm uppercase tracking-[0.3em] text-volt">{board.title}</p>
+          <section key={board.title} className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
+            <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">{board.title}</p>
             <div className="mt-4 space-y-3">
               {rows.map((user, index) => {
                 const value = Number(user[board.key]);
                 const formattedValue = board.key === "latestChange" && value > 0 ? `+${value}` : `${value}`;
 
                 return (
-                  <div key={user.id} className="grid grid-cols-[44px_1fr_auto] items-center gap-3 rounded-3xl bg-white/5 p-4">
+                  <div key={user.id} className="grid grid-cols-[40px_1fr] gap-3 rounded-2xl bg-white/5 p-3 sm:grid-cols-[44px_1fr_auto] sm:items-center sm:rounded-3xl sm:p-4">
                     <div className="grid h-11 w-11 place-items-center rounded-2xl bg-white/10 font-bold">{index + 1}</div>
                     <div>
                       <p className="font-bold">{user.name}</p>
@@ -2702,7 +2751,7 @@ function StatsPanel({ leaderboardRows }: { leaderboardRows: UserScore[] }) {
                         {user.groupPoints} grupp · {user.knockoutPoints} slutspel · {user.bonusPoints} bonus
                       </p>
                     </div>
-                    <p className="font-display text-2xl font-black text-volt">
+                    <p className="col-span-2 font-display text-2xl font-black text-volt sm:col-auto">
                       {formattedValue}
                       {board.suffix ? <span className="ml-1 text-xs text-white/40">{board.suffix}</span> : null}
                     </p>

@@ -1,8 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import type { BonusPrediction, PlayerProfile, Prediction, ScoreLine } from "./types";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+function normalizeSupabaseUrl(url?: string) {
+  return url?.trim().replace(/\/rest\/v1\/?$/, "").replace(/\/+$/, "");
+}
+
+const supabaseUrl = normalizeSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
 export const isSupabaseEnabled = Boolean(supabaseUrl && supabaseAnonKey);
 
