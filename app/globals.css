@@ -12,6 +12,13 @@
   box-sizing: border-box;
 }
 
+svg,
+canvas,
+.recharts-wrapper,
+.recharts-responsive-container {
+  max-width: 100%;
+}
+
 html {
   scroll-behavior: smooth;
   overflow-x: hidden;

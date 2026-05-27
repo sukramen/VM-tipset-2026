@@ -1189,11 +1189,11 @@ export default function Home() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden px-3 pb-20 pt-3 text-white sm:px-6 lg:px-8">
+    <main className="relative min-h-screen w-full overflow-x-hidden px-3 pb-20 pt-3 text-white sm:px-6 lg:px-8">
       <div className="absolute inset-0 -z-10 bg-grid bg-[length:44px_44px] opacity-30" />
       <div className="absolute left-1/2 top-0 -z-10 h-80 w-80 -translate-x-1/2 rounded-full bg-volt/20 blur-3xl" />
 
-      <header className="mx-auto flex max-w-7xl flex-col gap-4 py-3 sm:py-4 lg:flex-row lg:items-center lg:justify-between">
+      <header className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-4 py-3 sm:py-4 lg:flex-row lg:items-center lg:justify-between">
         <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }}>
           <p className="font-display text-[10px] uppercase tracking-[0.35em] text-volt sm:text-xs sm:tracking-[0.45em]">VM-Tipset 2026</p>
           <h1 className="mt-2 max-w-4xl font-display text-3xl font-black leading-[0.95] tracking-tight sm:text-5xl lg:text-6xl">
@@ -1233,7 +1233,7 @@ export default function Home() {
         </div>
       </header>
 
-      <nav className="sticky top-2 z-20 mx-auto mb-5 grid max-w-7xl grid-cols-3 gap-2 rounded-3xl border border-white/10 bg-pitch/85 p-2 backdrop-blur-2xl sm:top-3 sm:flex sm:overflow-x-auto sm:rounded-full">
+      <nav className="sticky top-2 z-20 mx-auto mb-5 grid w-full max-w-7xl min-w-0 grid-cols-3 gap-2 rounded-3xl border border-white/10 bg-pitch/85 p-2 backdrop-blur-2xl sm:top-3 sm:flex sm:overflow-x-auto sm:rounded-full">
         {visibleTabs.map((tab) => (
           <button
             key={tab}
@@ -1255,7 +1255,7 @@ export default function Home() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -18 }}
           transition={{ duration: 0.28 }}
-          className="mx-auto max-w-7xl"
+          className="mx-auto w-full max-w-7xl min-w-0"
         >
           {activeTab === "Hem" && (
             <Dashboard
@@ -1480,12 +1480,12 @@ function Dashboard({
   phaseStatus: ReturnType<typeof getPhaseStatus>;
 }) {
   return (
-    <div className="grid gap-5">
-      <div className="grid items-start gap-4 lg:grid-cols-[1.25fr_.75fr] lg:gap-5">
-        <section className="neon-border overflow-hidden rounded-[1.5rem] sm:rounded-[2rem]">
-          <div className="glass relative p-5 sm:p-7">
+    <div className="grid w-full min-w-0 gap-5">
+      <div className="grid w-full min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,.75fr)] lg:gap-5">
+        <section className="neon-border w-full min-w-0 overflow-hidden rounded-[1.5rem] sm:rounded-[2rem]">
+          <div className="glass relative w-full min-w-0 p-5 sm:p-7">
             <p className="text-xs uppercase tracking-[0.3em] text-cyan sm:text-sm sm:tracking-[0.35em]">Live leaderboard</p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3 sm:gap-4">
+            <div className="mt-4 grid w-full min-w-0 gap-3 sm:grid-cols-3 sm:gap-4">
               {topThree.map((user, index) => (
                 <motion.div
                   key={user.id}
@@ -1493,7 +1493,7 @@ function Dashboard({
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.08 }}
                   className={classNames(
-                    "rounded-[1.35rem] border p-4 sm:rounded-3xl sm:p-5",
+                    "min-w-0 rounded-[1.35rem] border p-4 sm:rounded-3xl sm:p-5",
                     index === 0 ? "border-volt/50 bg-volt/10 shadow-glow" : "border-white/10 bg-white/5",
                   )}
                 >
@@ -1522,7 +1522,7 @@ function Dashboard({
                 {dailyScoreData[dailyScoreData.length - 1]?.points ?? 0} p totalt
               </p>
             </div>
-            <div className="mt-4 h-44 sm:h-56">
+            <div className="mt-4 h-44 w-full min-w-0 sm:h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={dailyScoreData}>
                   <defs>
@@ -1544,7 +1544,7 @@ function Dashboard({
         </section>
 
 
-        <aside className="grid content-start gap-5">
+        <aside className="grid w-full min-w-0 content-start gap-5">
         <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
           <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Aktuell fas</p>
           <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">{phaseStatus.label}</h2>
