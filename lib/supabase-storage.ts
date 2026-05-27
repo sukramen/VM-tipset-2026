@@ -1,0 +1,194 @@
+import { createClient } from "@supabase/supabase-js";
+import type { BonusPrediction, PlayerProfile, Prediction, ScoreLine } from "./types";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+export const isSupabaseEnabled = Boolean(supabaseUrl && supabaseAnonKey);
+
+export const supabase = isSupabaseEnabled ? createClient(supabaseUrl!, supabaseAnonKey!) : null;
+
+const toJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+export function describeSupabaseError(error: unknown) {
+  if (!error) return "Okänt fel";
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  if (typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    return JSON.stringify({
+      message: record.message,
+      details: record.details,
+      hint: record.hint,
+      code: record.code,
+      status: record.status,
+      statusText: record.statusText,
+    });
+  }
+  return String(error);
+}
+
+type ProfileRow = {
+  id: string;
+  name: string;
+  initials: string;
+  role: "admin" | "player";
+  password_hash: string | null;
+};
+
+type PredictionRow = {
+  profile_id: string;
+  match_id: number;
+  home_score: number | null;
+  away_score: number | null;
+  winner: string | null;
+};
+
+type ResultRow = {
+  match_id: number;
+  home_score: number;
+  away_score: number;
+  winner: string | null;
+};
+
+const toProfile = (row: ProfileRow): PlayerProfile => ({
+  id: row.id,
+  name: row.name,
+  initials: row.initials,
+  role: row.role,
+  passwordHash: row.password_hash ?? undefined,
+});
+
+const toProfileRow = (profile: PlayerProfile): ProfileRow => ({
+  id: profile.id,
+  name: profile.name,
+  initials: profile.initials,
+  role: profile.role,
+  password_hash: profile.passwordHash ?? null,
+});
+
+export async function loadProfilesFromDb() {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from("vm_profiles").select("*").order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data as ProfileRow[]).map(toProfile);
+}
+
+export async function saveProfilesToDb(profiles: PlayerProfile[]) {
+  if (!supabase) return;
+  const { error } = await supabase.from("vm_profiles").upsert(profiles.map(toProfileRow), { onConflict: "id" });
+  if (error) throw error;
+}
+
+export async function deleteProfileFromDb(profileId: string) {
+  if (!supabase) return;
+  const { error } = await supabase.from("vm_profiles").delete().eq("id", profileId);
+  if (error) throw error;
+}
+
+export async function loadPredictionsFromDb(profileId: string) {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from("vm_predictions").select("*").eq("profile_id", profileId);
+  if (error) throw error;
+  return (data as PredictionRow[]).map((row) => ({
+    matchId: row.match_id,
+    score:
+      row.home_score === null || row.away_score === null
+        ? undefined
+        : { home: row.home_score, away: row.away_score },
+    winner: row.winner ?? undefined,
+  }));
+}
+
+export async function loadAllPredictionsFromDb() {
+  if (!supabase) return {};
+  const { data, error } = await supabase.from("vm_predictions").select("*");
+  if (error) throw error;
+  return (data as PredictionRow[]).reduce<Record<string, Prediction[]>>((map, row) => {
+    map[row.profile_id] ??= [];
+    map[row.profile_id].push({
+      matchId: row.match_id,
+      score:
+        row.home_score === null || row.away_score === null
+          ? undefined
+          : { home: row.home_score, away: row.away_score },
+      winner: row.winner ?? undefined,
+    });
+    return map;
+  }, {});
+}
+
+export async function savePredictionsToDb(profileId: string, predictions: Prediction[]) {
+  if (!supabase) return;
+  const rows = predictions.map((prediction) => ({
+    profile_id: profileId,
+    match_id: prediction.matchId,
+    home_score: prediction.score?.home ?? null,
+    away_score: prediction.score?.away ?? null,
+    winner: prediction.winner ?? null,
+  }));
+  const { error } = await supabase.from("vm_predictions").upsert(rows, { onConflict: "profile_id,match_id" });
+  if (error) throw error;
+}
+
+export async function loadAllBonusFromDb() {
+  if (!supabase) return {};
+  const { data, error } = await supabase.from("vm_bonus_predictions").select("profile_id, answers");
+  if (error) throw error;
+  return (data as Array<{ profile_id: string; answers: BonusPrediction | null }>).reduce<Record<string, BonusPrediction>>(
+    (map, row) => {
+      map[row.profile_id] = row.answers ?? {};
+      return map;
+    },
+    {},
+  );
+}
+
+export async function saveBonusToDb(profileId: string, answers: BonusPrediction) {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from("vm_bonus_predictions")
+    .upsert({ profile_id: profileId, answers: toJson(answers) }, { onConflict: "profile_id" });
+  if (error) throw error;
+}
+
+export async function loadResultsFromDb() {
+  if (!supabase) return { results: {}, resultWinners: {} };
+  const { data, error } = await supabase.from("vm_match_results").select("*");
+  if (error) throw error;
+  return (data as ResultRow[]).reduce<{ results: Record<number, ScoreLine>; resultWinners: Record<number, string> }>(
+    (map, row) => {
+      map.results[row.match_id] = { home: row.home_score, away: row.away_score };
+      if (row.winner) map.resultWinners[row.match_id] = row.winner;
+      return map;
+    },
+    { results: {}, resultWinners: {} },
+  );
+}
+
+export async function saveResultsToDb(results: Record<number, ScoreLine>, resultWinners: Record<number, string>) {
+  if (!supabase) return;
+  const rows = Object.entries(results).map(([matchId, score]) => ({
+    match_id: Number(matchId),
+    home_score: score.home,
+    away_score: score.away,
+    winner: resultWinners[Number(matchId)] ?? null,
+  }));
+  const { error: deleteError } = await supabase.from("vm_match_results").delete().neq("match_id", -1);
+  if (deleteError) throw deleteError;
+  if (rows.length === 0) return;
+  const { error } = await supabase.from("vm_match_results").insert(rows);
+  if (error) throw error;
+}
+
+export async function loadAppStateFromDb<T>(key: string, fallback: T): Promise<T> {
+  if (!supabase) return fallback;
+  const { data, error } = await supabase.from("vm_app_state").select("value").eq("key", key).maybeSingle();
+  if (error) throw error;
+  return (data?.value as T | undefined) ?? fallback;
+}
+
+export async function saveAppStateToDb<T>(key: string, value: T) {
+  if (!supabase) return;
+  const { error } = await supabase.from("vm_app_state").upsert({ key, value: toJson(value) }, { onConflict: "key" });
+  if (error) throw error;
+}
