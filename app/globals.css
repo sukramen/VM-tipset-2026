@@ -46,11 +46,6 @@ body {
   font-family: var(--font-body);
 }
 
-body > * {
-  min-width: 0;
-  max-width: 100dvw;
-}
-
 ::selection {
   background: rgba(124, 255, 107, 0.35);
 }

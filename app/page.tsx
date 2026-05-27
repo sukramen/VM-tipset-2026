@@ -1487,7 +1487,7 @@ function Dashboard({
   return (
     <div className="grid w-full min-w-0 max-w-full gap-5">
       <div className="grid w-full min-w-0 max-w-full items-start gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,.75fr)] lg:gap-5">
-        <section className="neon-border w-full min-w-0 max-w-[calc(100dvw-1.5rem)] overflow-hidden rounded-[1.5rem] sm:max-w-full sm:rounded-[2rem]">
+        <section className="neon-border w-full min-w-0 max-w-full overflow-hidden rounded-[1.5rem] sm:rounded-[2rem]">
           <div className="glass relative w-full min-w-0 p-5 sm:p-7">
             <p className="text-xs uppercase tracking-[0.3em] text-cyan sm:text-sm sm:tracking-[0.35em]">Live leaderboard</p>
             <div className="mt-4 grid w-full min-w-0 max-w-full gap-3 xl:grid-cols-3 xl:gap-4">
