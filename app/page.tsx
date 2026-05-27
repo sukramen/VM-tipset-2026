@@ -1233,13 +1233,13 @@ export default function Home() {
         </div>
       </header>
 
-      <nav className="sticky top-2 z-20 mx-auto mb-5 flex max-w-7xl gap-2 overflow-x-auto rounded-3xl border border-white/10 bg-pitch/85 p-2 backdrop-blur-2xl sm:top-3 sm:rounded-full">
+      <nav className="sticky top-2 z-20 mx-auto mb-5 grid max-w-7xl grid-cols-3 gap-2 rounded-3xl border border-white/10 bg-pitch/85 p-2 backdrop-blur-2xl sm:top-3 sm:flex sm:overflow-x-auto sm:rounded-full">
         {visibleTabs.map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={classNames(
-              "whitespace-nowrap rounded-full px-4 py-2.5 text-sm font-bold transition sm:py-2",
+              "min-w-0 whitespace-nowrap rounded-full px-3 py-2.5 text-center text-sm font-bold transition sm:px-4 sm:py-2",
               activeTab === tab ? "bg-volt text-pitch shadow-glow" : "text-white/70 hover:bg-white/10 hover:text-white",
             )}
           >
@@ -2369,13 +2369,13 @@ function AdminPanel({
           </p>
         </div>
 
-        <div className="mt-5 flex gap-2 overflow-x-auto pb-2">
+        <div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:overflow-x-auto sm:pb-2">
           {adminStageOrder.map((stage) => (
             <button
               key={stage}
               onClick={() => setAdminStage(stage)}
               className={classNames(
-                "whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold transition",
+                "min-w-0 whitespace-nowrap rounded-full px-3 py-2 text-sm font-bold transition sm:px-4",
                 adminStage === stage ? "bg-coral text-white" : "bg-white/10 text-white/60 hover:text-white",
               )}
             >
