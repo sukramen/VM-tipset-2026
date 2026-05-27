@@ -1205,13 +1205,13 @@ export default function Home() {
             Privat tipsspel med livekänsla.
           </h1>
         </motion.div>
-        <div className="glass flex w-full flex-wrap items-center gap-2 rounded-3xl p-2 sm:w-auto sm:gap-3">
-          <div className="rounded-2xl bg-volt/15 p-2.5 text-volt sm:p-3">
-            <ShieldCheck size={22} />
+        <div className="glass flex w-full flex-wrap items-center gap-3 rounded-3xl p-2 sm:w-auto sm:flex-nowrap">
+          <div className="rounded-2xl bg-volt/15 p-3 text-volt">
+            <ShieldCheck size={24} />
           </div>
           <div className="min-w-0 flex-1 sm:flex-none">
             <p className="text-sm text-white/60">{currentProfile.name}</p>
-            <p className="font-display text-xl font-bold sm:text-2xl">{currentProfileScore} p</p>
+            <p className="font-display text-2xl font-bold">{currentProfileScore} p</p>
             {currentProfile.role === "admin" ? (
               <p className="text-xs font-bold text-white/40">
                 {storageMode === "supabase" ? "Databas aktiv" : "Lokal fallback"}
@@ -1489,7 +1489,7 @@ function Dashboard({
       <div className="grid w-full min-w-0 max-w-full items-start gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,.75fr)] lg:gap-5">
         <section className="glass relative w-full min-w-0 max-w-full overflow-hidden rounded-[1.5rem] p-5 ring-1 ring-volt/25 sm:rounded-[2rem] sm:p-7">
             <p className="text-xs uppercase tracking-[0.3em] text-cyan sm:text-sm sm:tracking-[0.35em]">Live leaderboard</p>
-            <div className="mt-4 grid w-full min-w-0 max-w-full gap-3 xl:grid-cols-3 xl:gap-4">
+            <div className="mt-4 grid w-full min-w-0 max-w-full grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3 lg:grid-cols-3 lg:gap-4">
               {topThree.map((user, index) => (
                 <motion.div
                   key={user.id}
