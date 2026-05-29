@@ -17,7 +17,9 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Area,
   AreaChart,
@@ -30,6 +32,7 @@ import {
   YAxis,
 } from "recharts";
 import { buildStandings, rankThirdPlaced, scoreBonusPrediction, scorePrediction } from "@/lib/scoring";
+import { getFixtureKickoff, getStartedMatchIds, type MatchSyncPayload } from "@/lib/match-sync";
 import {
   deleteProfileFromDb,
   describeSupabaseError,
@@ -48,7 +51,7 @@ import {
 import { fixtures, groups, sampleResults } from "@/lib/world-cup-data";
 import type { BonusPrediction, Fixture, GroupLetter, MatchStage, PlayerProfile, Prediction, ScoreLine, UserScore } from "@/lib/types";
 
-const tabs = ["Hem", "Tippa", "Grupper", "Slutspel", "Admin", "Statistik"] as const;
+const tabs = ["Hem", "Tippa", "Grupper", "Slutspel", "Slutspel BETA", "Admin", "Statistik"] as const;
 type Tab = (typeof tabs)[number];
 
 const stageOrder: MatchStage[] = ["Sextondelsfinal", "Åttondelsfinal", "Kvartsfinal", "Semifinal", "Bronsmatch", "Final"];
@@ -58,6 +61,9 @@ const fixtureDates = Array.from(new Set(fixtures.map((fixture) => fixture.date))
 const predictionsVersion = "5";
 const bonusVersion = "1";
 const requireAdminPassword = false;
+const matchDaySyncIntervalMs = 15 * 60_000;
+const liveMatchSyncIntervalMs = 3 * 60_000;
+const liveMatchWindowMs = 3 * 60 * 60_000;
 const starterProfiles: PlayerProfile[] = [
   { id: "admin", name: "Admin", initials: "AD", role: "admin", passwordHash: hashPassword("markus123") },
   { id: "markus", name: "Markus", initials: "MV", role: "player" },
@@ -86,63 +92,95 @@ function logStorageError(message: string, error: unknown) {
   console.error(message, describeSupabaseError(error), error);
 }
 
-const flagByTeam: Record<string, string> = {
-  Algeriet: "🇩🇿",
-  Argentina: "🇦🇷",
-  Australien: "🇦🇺",
-  Belgien: "🇧🇪",
-  "Bosnien-Herzigovina": "🇧🇦",
-  Brasilien: "🇧🇷",
-  Colombia: "🇨🇴",
-  Curaçao: "🇨🇼",
-  Czechia: "🇨🇿",
-  Ecuador: "🇪🇨",
-  Egypten: "🇪🇬",
-  Elfenbenskusten: "🇨🇮",
-  England: "🏴",
-  Frankrike: "🇫🇷",
-  Ghana: "🇬🇭",
-  Haiti: "🇭🇹",
-  Irak: "🇮🇶",
-  Iran: "🇮🇷",
-  Japan: "🇯🇵",
-  Jordanien: "🇯🇴",
-  Kanada: "🇨🇦",
-  "Kap Verde": "🇨🇻",
-  Kongo: "🇨🇩",
-  Kroatien: "🇭🇷",
-  Marocko: "🇲🇦",
-  Mexiko: "🇲🇽",
-  Nederländerna: "🇳🇱",
-  Norge: "🇳🇴",
-  "Nya Zeeland": "🇳🇿",
-  Panama: "🇵🇦",
-  Paraguay: "🇵🇾",
-  Portugal: "🇵🇹",
-  Qatar: "🇶🇦",
-  Saudiarabien: "🇸🇦",
-  Schweiz: "🇨🇭",
-  Senegal: "🇸🇳",
-  Skottland: "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}",
-  Spanien: "🇪🇸",
-  Sverige: "🇸🇪",
-  Sydafrika: "🇿🇦",
-  Sydkorea: "🇰🇷",
-  Tunisien: "🇹🇳",
-  Turkiet: "🇹🇷",
-  Tyskland: "🇩🇪",
-  Uruguay: "🇺🇾",
-  USA: "🇺🇸",
-  Uzbekistan: "🇺🇿",
-  Österrike: "🇦🇹",
+const flagCodeByTeam: Record<string, string> = {
+  Algeriet: "dz",
+  Argentina: "ar",
+  Australien: "au",
+  Belgien: "be",
+  "Bosnien-Herzigovina": "ba",
+  Brasilien: "br",
+  Colombia: "co",
+  Curaçao: "cw",
+  Czechia: "cz",
+  Ecuador: "ec",
+  Egypten: "eg",
+  Elfenbenskusten: "ci",
+  England: "gb-eng",
+  Frankrike: "fr",
+  Ghana: "gh",
+  Haiti: "ht",
+  Irak: "iq",
+  Iran: "ir",
+  Japan: "jp",
+  Jordanien: "jo",
+  Kanada: "ca",
+  "Kap Verde": "cv",
+  Kongo: "cd",
+  Kroatien: "hr",
+  Marocko: "ma",
+  Mexiko: "mx",
+  Nederländerna: "nl",
+  Norge: "no",
+  "Nya Zeeland": "nz",
+  Panama: "pa",
+  Paraguay: "py",
+  Portugal: "pt",
+  Qatar: "qa",
+  Saudiarabien: "sa",
+  Schweiz: "ch",
+  Senegal: "sn",
+  Skottland: "gb-sct",
+  Spanien: "es",
+  Sverige: "se",
+  Sydafrika: "za",
+  Sydkorea: "kr",
+  Tunisien: "tn",
+  Turkiet: "tr",
+  Tyskland: "de",
+  Uruguay: "uy",
+  USA: "us",
+  Uzbekistan: "uz",
+  Österrike: "at",
 };
 
 function classNames(...values: Array<string | false | undefined>) {
   return values.filter(Boolean).join(" ");
 }
 
-function teamLabel(team: string) {
-  return flagByTeam[team] ? `${flagByTeam[team]} ${team}` : team;
+function uniqueSortedNumbers(values: number[]) {
+  return [...new Set(values)].sort((a, b) => a - b);
+}
+
+function isFixtureLocked(fixture: Fixture, lockedDates: string[], lockedMatchIds: number[] = []) {
+  return lockedDates.includes(fixture.date) || lockedMatchIds.includes(fixture.id);
+}
+
+function TeamLabel({ team }: { team: string }) {
+  const flagCode = flagCodeByTeam[team];
+
+  return (
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle">
+      {flagCode ? (
+        <Image
+          src={`https://flagcdn.com/w40/${flagCode}.png`}
+          alt=""
+          aria-hidden="true"
+          width={20}
+          height={15}
+          className="h-[1em] w-[1.35em] shrink-0 rounded-[2px] object-cover shadow-sm"
+          loading="lazy"
+          unoptimized
+        />
+      ) : null}
+      <span className="min-w-0 truncate">{team}</span>
+    </span>
+  );
+}
+
+function PodiumIcon({ index, size }: { index: number; size?: number }) {
+  if (index === 0) return <Crown size={size} className="text-flare" />;
+  if (index === 1) return <Medal size={size} className="text-white/75" />;
+  return <Medal size={size} className="text-[#CD7F32]" />;
 }
 
 function hashPassword(password: string) {
@@ -169,6 +207,41 @@ function getSwedishDateKey(date = new Date()) {
     month: "2-digit",
     day: "2-digit",
   }).format(date);
+}
+
+function getMatchSyncInterval(now = new Date()) {
+  const today = getSwedishDateKey(now);
+  const hasMatchToday = fixtures.some((fixture) => fixture.date === today);
+  if (!hasMatchToday) return undefined;
+
+  const hasLiveMatchWindow = fixtures.some((fixture) => {
+    const kickoff = getFixtureKickoff(fixture).getTime();
+    const elapsed = now.getTime() - kickoff;
+    return elapsed >= 0 && elapsed <= liveMatchWindowMs;
+  });
+
+  return hasLiveMatchWindow ? liveMatchSyncIntervalMs : matchDaySyncIntervalMs;
+}
+
+function getTournamentCountdown(now = new Date()) {
+  const firstFixture = fixtures[0];
+  const kickoff = getFixtureKickoff(firstFixture);
+  const totalSeconds = Math.max(0, Math.floor((kickoff.getTime() - now.getTime()) / 1000));
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return {
+    hasStarted: totalSeconds <= 0,
+    kickoff,
+    parts: [
+      { label: "Dagar", value: days },
+      { label: "Timmar", value: hours },
+      { label: "Minuter", value: minutes },
+      { label: "Sekunder", value: seconds },
+    ],
+  };
 }
 
 function getMatchesByDate(date: string) {
@@ -205,12 +278,13 @@ function buildDailyScoreData(
   results: Record<number, ScoreLine>,
   lockedDates: string[],
   resultWinners: Record<number, string> = {},
+  lockedMatchIds: number[] = [],
 ) {
   const predictionMap = new Map(predictions.map((prediction) => [prediction.matchId, prediction]));
   let total = 0;
 
   const rows = fixtures
-    .filter((fixture) => lockedDates.includes(fixture.date) && results[fixture.id])
+    .filter((fixture) => isFixtureLocked(fixture, lockedDates, lockedMatchIds) && results[fixture.id])
     .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id)
     .reduce<Array<{ date: string; points: number; dayPoints: number }>>((days, fixture) => {
       const prediction = predictionMap.get(fixture.id);
@@ -245,6 +319,7 @@ function scorePredictions(
   bonusAnswers: BonusPrediction = defaultBonusAnswers,
   officialBonusAnswers: BonusPrediction = defaultBonusAnswers,
   closestTotalGoalDelta?: number,
+  lockedMatchIds: number[] = [],
 ) {
   let exact = 0;
   let groupPoints = 0;
@@ -252,14 +327,14 @@ function scorePredictions(
   let latestChange = 0;
   const fixtureById = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
   const latestLockedDate = fixtures
-    .filter((fixture) => lockedDates.includes(fixture.date) && results[fixture.id])
+    .filter((fixture) => isFixtureLocked(fixture, lockedDates, lockedMatchIds) && results[fixture.id])
     .map((fixture) => fixture.date)
     .sort((a, b) => b.localeCompare(a))[0];
 
   for (const prediction of predictions) {
     const fixture = fixtureById.get(prediction.matchId);
     const result = results[prediction.matchId];
-    if (!fixture || !result || !lockedDates.includes(fixture.date)) continue;
+    if (!fixture || !result || !isFixtureLocked(fixture, lockedDates, lockedMatchIds)) continue;
 
     const actualWinner =
       fixture.stage === "Gruppspel"
@@ -304,6 +379,7 @@ function buildLeaderboardRows(
   storedBonusAnswers: Record<string, BonusPrediction>,
   activeBonusAnswers: BonusPrediction,
   officialBonusAnswers: BonusPrediction,
+  lockedMatchIds: number[] = [],
 ): UserScore[] {
   const playerProfiles = profiles.filter((profile) => profile.role === "player");
   const bonusByProfile = new Map(
@@ -337,6 +413,7 @@ function buildLeaderboardRows(
         bonusByProfile.get(profile.id) ?? defaultBonusAnswers,
         officialBonusAnswers,
         Number.isFinite(closestTotalGoalDelta) ? closestTotalGoalDelta : undefined,
+        lockedMatchIds,
       );
 
       return {
@@ -344,7 +421,7 @@ function buildLeaderboardRows(
         name: profile.name,
         avatar: profile.initials,
         trend: score.latestChange,
-        history: buildDailyScoreData(profilePredictions, results, lockedDates, resultWinners).map((day) => day.points),
+        history: buildDailyScoreData(profilePredictions, results, lockedDates, resultWinners, lockedMatchIds).map((day) => day.points),
         ...score,
       };
     })
@@ -370,23 +447,23 @@ function matchLoser(home: string, away: string, score?: ScoreLine, winnerOverrid
   return undefined;
 }
 
-function stageIsLocked(stage: MatchStage, lockedDates: string[]) {
+function stageIsLocked(stage: MatchStage, lockedDates: string[], lockedMatchIds: number[] = []) {
   const stageFixtures = fixtures.filter((match) => match.stage === stage);
-  return stageFixtures.length > 0 && stageFixtures.every((match) => lockedDates.includes(match.date));
+  return stageFixtures.length > 0 && stageFixtures.every((match) => isFixtureLocked(match, lockedDates, lockedMatchIds));
 }
 
-function getOpenKnockoutStages(lockedDates: string[]): MatchStage[] {
-  if (!stageIsLocked("Gruppspel", lockedDates)) return [];
-  if (!stageIsLocked("Sextondelsfinal", lockedDates)) return ["Sextondelsfinal"];
-  if (!stageIsLocked("Åttondelsfinal", lockedDates)) return ["Åttondelsfinal"];
-  if (!stageIsLocked("Kvartsfinal", lockedDates)) return ["Kvartsfinal"];
-  if (!stageIsLocked("Semifinal", lockedDates)) return ["Semifinal"];
+function getOpenKnockoutStages(lockedDates: string[], lockedMatchIds: number[] = []): MatchStage[] {
+  if (!stageIsLocked("Gruppspel", lockedDates, lockedMatchIds)) return [];
+  if (!stageIsLocked("Sextondelsfinal", lockedDates, lockedMatchIds)) return ["Sextondelsfinal"];
+  if (!stageIsLocked("Åttondelsfinal", lockedDates, lockedMatchIds)) return ["Åttondelsfinal"];
+  if (!stageIsLocked("Kvartsfinal", lockedDates, lockedMatchIds)) return ["Kvartsfinal"];
+  if (!stageIsLocked("Semifinal", lockedDates, lockedMatchIds)) return ["Semifinal"];
 
-  return (["Bronsmatch", "Final"] as MatchStage[]).filter((stage) => !stageIsLocked(stage, lockedDates));
+  return (["Bronsmatch", "Final"] as MatchStage[]).filter((stage) => !stageIsLocked(stage, lockedDates, lockedMatchIds));
 }
 
-function getPhaseStatus(lockedDates: string[]) {
-  if (!stageIsLocked("Gruppspel", lockedDates)) {
+function getPhaseStatus(lockedDates: string[], lockedMatchIds: number[] = []) {
+  if (!stageIsLocked("Gruppspel", lockedDates, lockedMatchIds)) {
     return {
       label: "Gruppspel öppet",
       description: "Tippa gruppspel och bonusfrågor. Slutspel låses upp efter gruppspelet.",
@@ -394,7 +471,7 @@ function getPhaseStatus(lockedDates: string[]) {
     };
   }
 
-  const openKnockoutStages = getOpenKnockoutStages(lockedDates);
+  const openKnockoutStages = getOpenKnockoutStages(lockedDates, lockedMatchIds);
   if (openKnockoutStages.length > 0) {
     return {
       label: `${openKnockoutStages.join(" & ")} öppet`,
@@ -463,6 +540,7 @@ function buildResolvedKnockoutFixtures({
   sourceResults,
   predictions = [],
   lockedDates = [],
+  lockedMatchIds = [],
   resolveGroupTeams = false,
   forceResolveAll = false,
   useSourceResultsForAdvancement = false,
@@ -471,6 +549,7 @@ function buildResolvedKnockoutFixtures({
   sourceResults: Record<number, ScoreLine>;
   predictions?: Prediction[];
   lockedDates?: string[];
+  lockedMatchIds?: number[];
   resolveGroupTeams?: boolean;
   forceResolveAll?: boolean;
   useSourceResultsForAdvancement?: boolean;
@@ -514,7 +593,7 @@ function buildResolvedKnockoutFixtures({
     const canResolveRound =
       forceResolveAll ||
       match.stage === "Sextondelsfinal" ||
-      (requiredPreviousStage ? stageIsLocked(requiredPreviousStage, lockedDates) : false);
+      (requiredPreviousStage ? stageIsLocked(requiredPreviousStage, lockedDates, lockedMatchIds) : false);
 
     const resolved = {
       ...match,
@@ -663,6 +742,10 @@ export default function Home() {
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [lockedDates, setLockedDates] = useState<string[]>([]);
+  const [lockedMatchIds, setLockedMatchIds] = useState<number[]>([]);
+  const [matchSyncMessage, setMatchSyncMessage] = useState("");
+  const [showWinnersModal, setShowWinnersModal] = useState(false);
+  const [winnersModalDismissed, setWinnersModalDismissed] = useState(false);
   const [homePreviewDate, setHomePreviewDate] = useState("");
   const [clockTick, setClockTick] = useState(() => Date.now());
   const [bonusAnswers, setBonusAnswers] = useState<BonusPrediction>(defaultBonusAnswers);
@@ -673,6 +756,11 @@ export default function Home() {
   const [storageMode, setStorageMode] = useState<"supabase" | "local">(isSupabaseEnabled ? "supabase" : "local");
   const allPredictionsRef = useRef<Record<string, Prediction[]>>({});
   const allBonusRef = useRef<Record<string, BonusPrediction>>({});
+  const resultsRef = useRef<Record<number, ScoreLine>>({});
+  const resultWinnersRef = useRef<Record<number, string>>({});
+  const lockedDatesRef = useRef<string[]>([]);
+  const lockedMatchIdsRef = useRef<number[]>([]);
+  const lastMatchSyncAtRef = useRef(0);
 
   useEffect(() => {
     allPredictionsRef.current = allPredictionsByProfile;
@@ -683,7 +771,23 @@ export default function Home() {
   }, [allBonusByProfile]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setClockTick(Date.now()), 60_000);
+    resultsRef.current = results;
+  }, [results]);
+
+  useEffect(() => {
+    resultWinnersRef.current = resultWinners;
+  }, [resultWinners]);
+
+  useEffect(() => {
+    lockedDatesRef.current = lockedDates;
+  }, [lockedDates]);
+
+  useEffect(() => {
+    lockedMatchIdsRef.current = lockedMatchIds;
+  }, [lockedMatchIds]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockTick(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -693,12 +797,13 @@ export default function Home() {
     async function loadInitialData() {
       if (isSupabaseEnabled) {
         try {
-          const [dbProfiles, dbPredictions, dbBonus, dbResults, dbLockedDates, dbOfficialBonus] = await Promise.all([
+          const [dbProfiles, dbPredictions, dbBonus, dbResults, dbLockedDates, dbLockedMatchIds, dbOfficialBonus] = await Promise.all([
             loadProfilesFromDb(),
             loadAllPredictionsFromDb(),
             loadAllBonusFromDb(),
             loadResultsFromDb(),
             loadAppStateFromDb<string[]>("locked_dates", []),
+            loadAppStateFromDb<number[]>("locked_match_ids", []),
             loadAppStateFromDb<BonusPrediction>("official_bonus", defaultBonusAnswers),
           ]);
 
@@ -713,6 +818,7 @@ export default function Home() {
           setResults(dbResults.results);
           setResultWinners(dbResults.resultWinners);
           setLockedDates(dbLockedDates);
+          setLockedMatchIds(dbLockedMatchIds);
           setOfficialBonusAnswers(dbOfficialBonus);
           setStorageMode("supabase");
           setIsDatabaseLoaded(true);
@@ -725,6 +831,7 @@ export default function Home() {
 
       const savedProfiles = readStoredJson<PlayerProfile[] | null>("vm-tipset-profiles", null);
       setLockedDates(readStoredJson("vm-tipset-locked-dates", []));
+      setLockedMatchIds(readStoredJson("vm-tipset-locked-match-ids", []));
       setOfficialBonusAnswers(readStoredJson("vm-tipset-official-bonus", defaultBonusAnswers));
       setResultWinners(readStoredJson("vm-tipset-result-winners", {}));
       setResults(readStoredJson("vm-tipset-results", sampleResults));
@@ -751,10 +858,12 @@ export default function Home() {
     if (!isDatabaseLoaded) return;
     if (storageMode === "supabase") {
       saveAppStateToDb("locked_dates", lockedDates).catch((error) => logStorageError("Kunde inte spara låsta dagar.", error));
+      saveAppStateToDb("locked_match_ids", lockedMatchIds).catch((error) => logStorageError("Kunde inte spara låsta matcher.", error));
       return;
     }
     window.localStorage.setItem("vm-tipset-locked-dates", JSON.stringify(lockedDates));
-  }, [isDatabaseLoaded, lockedDates, storageMode]);
+    window.localStorage.setItem("vm-tipset-locked-match-ids", JSON.stringify(lockedMatchIds));
+  }, [isDatabaseLoaded, lockedDates, lockedMatchIds, storageMode]);
 
   useEffect(() => {
     if (!isDatabaseLoaded) return;
@@ -820,13 +929,93 @@ export default function Home() {
     window.localStorage.setItem("vm-tipset-official-bonus", JSON.stringify(officialBonusAnswers));
   }, [isDatabaseLoaded, officialBonusAnswers, storageMode]);
 
+  useEffect(() => {
+    if (!isDatabaseLoaded) return;
+
+    const lockStartedMatches = () => {
+      const startedMatchIds = getStartedMatchIds(new Date());
+      setLockedMatchIds((current) => uniqueSortedNumbers([...current, ...startedMatchIds]));
+    };
+
+    lockStartedMatches();
+    const timer = window.setInterval(lockStartedMatches, 60_000);
+    return () => window.clearInterval(timer);
+  }, [isDatabaseLoaded]);
+
+  useEffect(() => {
+    if (!isDatabaseLoaded) return;
+    let cancelled = false;
+
+    const syncMatches = async () => {
+      try {
+        const resolvedKnockout = buildResolvedKnockoutFixtures({
+          sourceResults: resultsRef.current,
+          lockedDates: lockedDatesRef.current,
+          lockedMatchIds: lockedMatchIdsRef.current,
+          resolveGroupTeams: stageIsLocked("Gruppspel", lockedDatesRef.current, lockedMatchIdsRef.current),
+          useSourceResultsForAdvancement: true,
+          advancementWinners: resultWinnersRef.current,
+        });
+        const fixturesToMatch = [
+          ...fixtures.filter((fixture) => fixture.stage === "Gruppspel"),
+          ...resolvedKnockout.map((fixture) => ({
+            ...fixture,
+            home: fixture.resolvedHome,
+            away: fixture.resolvedAway,
+          })),
+        ].map((fixture) => ({
+          id: fixture.id,
+          date: fixture.date,
+          home: fixture.home,
+          away: fixture.away,
+          stage: fixture.stage,
+        }));
+        const response = await fetch("/api/match-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fixtures: fixturesToMatch }),
+          cache: "no-store",
+        });
+        const payload = (await response.json()) as MatchSyncPayload;
+        if (cancelled) return;
+
+        setLockedMatchIds((current) => uniqueSortedNumbers([...current, ...payload.lockedMatchIds]));
+        setResults((current) => ({ ...current, ...payload.results }));
+        setResultWinners((current) => ({ ...current, ...payload.resultWinners }));
+        setMatchSyncMessage(payload.ok ? `Synkat ${new Date(payload.syncedAt).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}` : payload.message ?? "");
+      } catch (error) {
+        if (!cancelled) {
+          setMatchSyncMessage("Kunde inte synka matchresultat just nu.");
+          logStorageError("Kunde inte synka matchresultat.", error);
+        }
+      }
+    };
+
+    const syncWhenDue = () => {
+      const interval = getMatchSyncInterval(new Date());
+      if (!interval) return;
+
+      const now = Date.now();
+      if (now - lastMatchSyncAtRef.current < interval) return;
+      lastMatchSyncAtRef.current = now;
+      syncMatches();
+    };
+
+    syncWhenDue();
+    const timer = window.setInterval(syncWhenDue, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isDatabaseLoaded]);
+
   const predictionScore = useMemo(
     () => {
       const fixtureById = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
 
       return predictions.reduce((sum, prediction) => {
         const fixture = fixtureById.get(prediction.matchId);
-        if (!fixture || !lockedDates.includes(fixture.date)) return sum;
+        if (!fixture || !isFixtureLocked(fixture, lockedDates, lockedMatchIds)) return sum;
         const actualWinner =
           fixture.stage === "Gruppspel"
             ? undefined
@@ -834,19 +1023,20 @@ export default function Home() {
         return sum + scorePrediction(prediction, results[prediction.matchId], fixture.stage, actualWinner);
       }, 0);
     },
-    [lockedDates, predictions, resultWinners, results],
+    [lockedDates, lockedMatchIds, predictions, resultWinners, results],
   );
 
   const dashboardNow = useMemo(() => new Date(clockTick), [clockTick]);
+  const tournamentCountdown = useMemo(() => getTournamentCountdown(dashboardNow), [dashboardNow]);
   const next = useMemo(() => getDashboardNextFixture(homePreviewDate || undefined, dashboardNow), [dashboardNow, homePreviewDate]);
   const matchDayPanel = useMemo(() => getMatchDayPanel(homePreviewDate || undefined, dashboardNow), [dashboardNow, homePreviewDate]);
   const thirdPlaced = rankThirdPlaced(results).slice(0, 8);
   const visibleTabs = currentProfile?.role === "admin" ? tabs : tabs.filter((tab) => tab !== "Admin");
-  const phaseStatus = useMemo(() => getPhaseStatus(lockedDates), [lockedDates]);
-  const openKnockoutStages = useMemo(() => getOpenKnockoutStages(lockedDates), [lockedDates]);
+  const phaseStatus = useMemo(() => getPhaseStatus(lockedDates, lockedMatchIds), [lockedDates, lockedMatchIds]);
+  const openKnockoutStages = useMemo(() => getOpenKnockoutStages(lockedDates, lockedMatchIds), [lockedDates, lockedMatchIds]);
   const dailyScoreData = useMemo(
-    () => buildDailyScoreData(predictions, results, lockedDates, resultWinners),
-    [lockedDates, predictions, resultWinners, results],
+    () => buildDailyScoreData(predictions, results, lockedDates, resultWinners, lockedMatchIds),
+    [lockedDates, lockedMatchIds, predictions, resultWinners, results],
   );
   const liveLeaderboard = useMemo(
     () =>
@@ -861,6 +1051,7 @@ export default function Home() {
         allBonusByProfile,
         bonusAnswers,
         officialBonusAnswers,
+        lockedMatchIds,
       ),
     [
       allBonusByProfile,
@@ -868,6 +1059,7 @@ export default function Home() {
       bonusAnswers,
       currentProfile?.id,
       lockedDates,
+      lockedMatchIds,
       officialBonusAnswers,
       predictions,
       profiles,
@@ -877,6 +1069,19 @@ export default function Home() {
   );
   const topThree = liveLeaderboard.slice(0, 3);
   const currentProfileScore = liveLeaderboard.find((user) => user.id === currentProfile?.id)?.points ?? predictionScore;
+  const tournamentComplete = useMemo(
+    () => fixtures.every((fixture) => isFixtureLocked(fixture, lockedDates, lockedMatchIds) && results[fixture.id]),
+    [lockedDates, lockedMatchIds, results],
+  );
+
+  useEffect(() => {
+    if (!isDatabaseLoaded) return;
+    setWinnersModalDismissed(window.localStorage.getItem("vm-tipset-winners-modal-dismissed") === "true");
+  }, [isDatabaseLoaded]);
+
+  useEffect(() => {
+    if (tournamentComplete && !winnersModalDismissed) setShowWinnersModal(true);
+  }, [tournamentComplete, winnersModalDismissed]);
 
   useEffect(() => {
     document.documentElement.scrollLeft = 0;
@@ -884,7 +1089,7 @@ export default function Home() {
   }, [activeTab, currentProfile?.id]);
 
   function updatePrediction(match: Fixture, side: "home" | "away", value: number) {
-    if (lockedDates.includes(match.date)) return;
+    if (isFixtureLocked(match, lockedDates, lockedMatchIds)) return;
 
     setPredictions((current) =>
       current.map((prediction) => {
@@ -911,7 +1116,7 @@ export default function Home() {
   }
 
   function updatePredictionWinner(match: Fixture, winner: string) {
-    if (lockedDates.includes(match.date)) return;
+    if (isFixtureLocked(match, lockedDates, lockedMatchIds)) return;
 
     setPredictions((current) =>
       current.map((prediction) => (prediction.matchId === match.id ? { ...prediction, winner } : prediction)),
@@ -933,7 +1138,7 @@ export default function Home() {
     setPredictions((current) =>
       current.map((prediction) => {
         const fixture = fixtures.find((match) => match.id === prediction.matchId);
-        if (fixture && lockedDates.includes(fixture.date)) return prediction;
+        if (fixture && isFixtureLocked(fixture, lockedDates, lockedMatchIds)) return prediction;
         return { matchId: prediction.matchId, winner: fixture?.stage === "Gruppspel" ? "Ej tippat" : "Ej valt" };
       }),
     );
@@ -1006,6 +1211,7 @@ export default function Home() {
     setResults(randomResults);
     setResultWinners(randomResultWinners);
     setLockedDates(allLockedDates);
+    setLockedMatchIds(fixtures.map((fixture) => fixture.id));
   }
 
   function resetDevData() {
@@ -1045,6 +1251,7 @@ export default function Home() {
     setResults({});
     setResultWinners({});
     setLockedDates([]);
+    setLockedMatchIds([]);
   }
 
   function updateResult(matchId: number, side: "home" | "away", value: number) {
@@ -1064,7 +1271,44 @@ export default function Home() {
   }
 
   function toggleLockedDate(date: string) {
-    setLockedDates((current) => (current.includes(date) ? current.filter((item) => item !== date) : [...current, date]));
+    const dayMatchIds = fixtures.filter((fixture) => fixture.date === date).map((fixture) => fixture.id);
+    const shouldUnlock = lockedDates.includes(date) || dayMatchIds.every((matchId) => lockedMatchIds.includes(matchId));
+
+    setLockedDates((current) => (shouldUnlock ? current.filter((item) => item !== date) : [...current, date]));
+    setLockedMatchIds((current) =>
+      shouldUnlock ? current.filter((matchId) => !dayMatchIds.includes(matchId)) : uniqueSortedNumbers([...current, ...dayMatchIds]),
+    );
+  }
+
+  function toggleLockedMatch(matchId: number) {
+    const fixture = fixtures.find((match) => match.id === matchId);
+    if (!fixture) return;
+
+    setLockedMatchIds((current) => {
+      const isUnlocking = current.includes(matchId);
+      const next = isUnlocking ? current.filter((item) => item !== matchId) : uniqueSortedNumbers([...current, matchId]);
+      const dayMatchIds = fixtures.filter((match) => match.date === fixture.date).map((match) => match.id);
+      const fullDayLocked = dayMatchIds.every((id) => next.includes(id));
+
+      setLockedDates((dates) => {
+        if (isUnlocking) return dates.filter((date) => date !== fixture.date);
+        return fullDayLocked && !dates.includes(fixture.date) ? [...dates, fixture.date] : dates;
+      });
+
+      return next;
+    });
+  }
+
+  function openWinnersModal() {
+    setShowWinnersModal(true);
+  }
+
+  function closeWinnersModal() {
+    setShowWinnersModal(false);
+    if (tournamentComplete) {
+      window.localStorage.setItem("vm-tipset-winners-modal-dismissed", "true");
+      setWinnersModalDismissed(true);
+    }
   }
 
   function createPlayer() {
@@ -1213,14 +1457,13 @@ export default function Home() {
 
   return (
     <main className="relative min-h-screen w-full max-w-[100dvw] overflow-x-hidden px-3 pb-20 pt-3 text-white sm:px-6 lg:px-8">
-      <div className="absolute inset-0 -z-10 bg-grid bg-[length:44px_44px] opacity-30" />
       <div className="absolute left-1/2 top-0 -z-10 h-80 w-80 -translate-x-1/2 rounded-full bg-volt/20 blur-3xl" />
 
       <header className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-4 py-3 sm:py-4 lg:flex-row lg:items-center lg:justify-between">
         <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }}>
           <p className="font-display text-[10px] uppercase tracking-[0.35em] text-volt sm:text-xs sm:tracking-[0.45em]">VM-Tipset 2026</p>
           <h1 className="mt-2 max-w-4xl font-display text-3xl font-black leading-[0.95] tracking-tight sm:text-5xl lg:text-6xl">
-            Privat tipsspel med livekänsla.
+            Tipsspel för VM 2026
           </h1>
         </motion.div>
         <div className="glass flex w-full flex-wrap items-center gap-3 rounded-3xl p-2 sm:w-auto sm:flex-nowrap">
@@ -1287,12 +1530,14 @@ export default function Home() {
               dailyScoreData={dailyScoreData}
               matchDayPanel={matchDayPanel}
               phaseStatus={phaseStatus}
+              tournamentCountdown={tournamentCountdown}
             />
           )}
           {activeTab === "Tippa" && (
             <PredictionsPanel
               predictions={predictions}
               lockedDates={lockedDates}
+              lockedMatchIds={lockedMatchIds}
               openKnockoutStages={openKnockoutStages}
               phaseStatus={phaseStatus}
               bonusAnswers={bonusAnswers}
@@ -1310,7 +1555,8 @@ export default function Home() {
               thirdPlaced={thirdPlaced}
             />
           )}
-          {activeTab === "Slutspel" && <KnockoutPanel sourceResults={results} lockedDates={lockedDates} resultWinners={resultWinners} />}
+          {activeTab === "Slutspel" && <KnockoutPanel sourceResults={results} lockedDates={lockedDates} lockedMatchIds={lockedMatchIds} resultWinners={resultWinners} />}
+          {activeTab === "Slutspel BETA" && <KnockoutBracketBeta sourceResults={results} lockedDates={lockedDates} lockedMatchIds={lockedMatchIds} resultWinners={resultWinners} />}
           {activeTab === "Admin" && (
             <AdminPanel
               results={results}
@@ -1328,8 +1574,12 @@ export default function Home() {
               resetProfilePassword={resetProfilePassword}
               randomizeDevData={randomizeDevData}
               resetDevData={resetDevData}
+              openWinnersModal={openWinnersModal}
               lockedDates={lockedDates}
+              lockedMatchIds={lockedMatchIds}
               toggleLockedDate={toggleLockedDate}
+              toggleLockedMatch={toggleLockedMatch}
+              matchSyncMessage={matchSyncMessage}
               homePreviewDate={homePreviewDate}
               setHomePreviewDate={setHomePreviewDate}
               officialBonusAnswers={officialBonusAnswers}
@@ -1338,6 +1588,9 @@ export default function Home() {
           )}
           {activeTab === "Statistik" && <StatsPanel leaderboardRows={liveLeaderboard} />}
         </motion.section>
+      </AnimatePresence>
+      <AnimatePresence>
+        {showWinnersModal && <WinnersModal leaderboardRows={liveLeaderboard} onClose={closeWinnersModal} />}
       </AnimatePresence>
     </main>
   );
@@ -1380,7 +1633,6 @@ function ProfileGate({
 
   return (
     <main className="relative grid min-h-screen place-items-center overflow-hidden px-4 py-10 text-white">
-      <div className="absolute inset-0 -z-10 bg-grid bg-[length:44px_44px] opacity-25" />
       <div className="absolute left-1/2 top-8 -z-10 h-96 w-96 -translate-x-1/2 rounded-full bg-cyan/20 blur-3xl" />
       <motion.section
         initial={{ opacity: 0, y: 24 }}
@@ -1391,7 +1643,7 @@ function ProfileGate({
           <p className="font-display text-xs uppercase tracking-[0.45em] text-volt">VM-Tipset 2026</p>
           <h1 className="mt-3 font-display text-4xl font-black tracking-tight sm:text-6xl">Vem tippar?</h1>
           <p className="mt-3 max-w-2xl text-white/65">
-            Ingen inloggning behövs. Välj ditt namn, eller skapa en ny spelare. Admin är bara ett lokalt läge för att mata in resultat.
+            Välj ditt namn, eller skapa en ny spelare. Admin är bara ett lokalt läge för att mata in resultat och administrera tippningen.
           </p>
 
           <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1497,12 +1749,14 @@ function Dashboard({
   dailyScoreData,
   matchDayPanel,
   phaseStatus,
+  tournamentCountdown,
 }: {
   next: Fixture;
   topThree: UserScore[];
   dailyScoreData: Array<{ date: string; points: number; dayPoints: number }>;
   matchDayPanel: { label: string; date: string; matches: Fixture[] };
   phaseStatus: ReturnType<typeof getPhaseStatus>;
+  tournamentCountdown: ReturnType<typeof getTournamentCountdown>;
 }) {
   return (
     <div className="grid w-full min-w-0 max-w-full gap-5">
@@ -1533,7 +1787,9 @@ function Dashboard({
                   </p>
                 </div>
                 <div className="text-right">
-                  {index === 0 ? <Crown size={18} className="ml-auto text-flare" /> : <Medal size={18} className="ml-auto text-cyan" />}
+                  <div className="ml-auto">
+                    <PodiumIcon index={index} size={18} />
+                  </div>
                   <p className="mt-1 font-display text-2xl font-black text-volt">{user.points}</p>
                 </div>
               </motion.div>
@@ -1542,7 +1798,7 @@ function Dashboard({
           <div className="mt-5 flex items-end justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-[0.24em] text-volt">Poäng per dag</p>
-              <p className="mt-1 text-xs text-white/50">Räknas när admin låst matchdagen.</p>
+              <p className="mt-1 text-xs text-white/50">Räknas när matcherna är färdigspelade.</p>
             </div>
             <p className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-sm text-white/65">
               {dailyScoreData[dailyScoreData.length - 1]?.points ?? 0} p
@@ -1551,7 +1807,18 @@ function Dashboard({
           <PointsAreaChart data={dailyScoreData} heightClass="h-44" />
         </section>
 
-        <Metric icon={<CalendarClock />} label="Nästa match" value={`${formatDate(next.date)} ${next.kickoffTime} · ${teamLabel(next.home)} - ${teamLabel(next.away)}`} />
+        <Metric
+          icon={<CalendarClock />}
+          label="Nästa match"
+          value={
+            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              <span>{formatDate(next.date)} {next.kickoffTime}</span>
+              <TeamLabel team={next.home} />
+              <span>-</span>
+              <TeamLabel team={next.away} />
+            </span>
+          }
+        />
 
         <div className="glass w-full min-w-0 max-w-full rounded-[1.5rem] p-4">
           <div className="flex items-end justify-between gap-3">
@@ -1565,8 +1832,8 @@ function Dashboard({
             {matchDayPanel.matches.map((match) => (
               <div key={match.id} className="rounded-2xl bg-white/5 p-3">
                 <p className="font-display text-lg font-black text-volt">{match.kickoffTime}</p>
-                <p className="mt-1 truncate font-bold">{teamLabel(match.home)}</p>
-                <p className="truncate font-bold">{teamLabel(match.away)}</p>
+                <p className="mt-1 truncate font-bold"><TeamLabel team={match.home} /></p>
+                <p className="truncate font-bold"><TeamLabel team={match.away} /></p>
               </div>
             ))}
           </div>
@@ -1592,7 +1859,7 @@ function Dashboard({
                     <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/10 font-display font-black">
                       {user.avatar}
                     </div>
-                    {index === 0 ? <Crown className="text-flare" /> : <Medal className="text-cyan" />}
+                    <PodiumIcon index={index} />
                   </div>
                   <p className="mt-4 text-white/60">#{index + 1}</p>
                   <h2 className="font-display text-xl font-black sm:text-2xl">{user.name}</h2>
@@ -1607,7 +1874,7 @@ function Dashboard({
             <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-sm uppercase tracking-[0.28em] text-volt">Poäng per dag</p>
-                <p className="text-sm text-white/50">Poäng räknas först när admin har låst matchdagen.</p>
+                <p className="text-sm text-white/50">Poäng räknas när matcherna är färdigspelade.</p>
               </div>
               <p className="rounded-full bg-white/10 px-4 py-2 text-sm text-white/65">
                 {dailyScoreData[dailyScoreData.length - 1]?.points ?? 0} p totalt
@@ -1618,13 +1885,19 @@ function Dashboard({
 
 
         <aside className="grid w-full min-w-0 content-start gap-5">
-        <div className="glass hidden rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5 lg:block">
-          <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Aktuell fas</p>
-          <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">{phaseStatus.label}</h2>
-          <p className="mt-2 text-sm leading-relaxed text-white/60">{phaseStatus.description}</p>
-          <p className="mt-4 rounded-full bg-volt/10 px-4 py-2 text-sm font-bold text-volt">Öppet: {phaseStatus.openLabel}</p>
-        </div>
-        <Metric icon={<CalendarClock />} label="Nästa match" value={`${formatDate(next.date)} ${next.kickoffTime} · ${teamLabel(next.home)} - ${teamLabel(next.away)}`} />
+        <TournamentStatusPanel phaseStatus={phaseStatus} tournamentCountdown={tournamentCountdown} />
+        <Metric
+          icon={<CalendarClock />}
+          label="Nästa match"
+          value={
+            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              <span>{formatDate(next.date)} {next.kickoffTime}</span>
+              <TeamLabel team={next.home} />
+              <span>-</span>
+              <TeamLabel team={next.away} />
+            </span>
+          }
+        />
         <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
           <div className="flex items-end justify-between gap-3">
             <div>
@@ -1637,9 +1910,9 @@ function Dashboard({
             {matchDayPanel.matches.map((match) => (
               <div key={match.id} className="grid grid-cols-[48px_1fr] gap-2 rounded-2xl bg-white/5 p-3 text-sm sm:grid-cols-[52px_1fr_auto_1fr] sm:items-center">
                 <span className="font-display font-black text-volt">{match.kickoffTime}</span>
-                <span className="font-bold">{teamLabel(match.home)}</span>
+                <span className="font-bold"><TeamLabel team={match.home} /></span>
                 <span className="hidden text-white/40 sm:block">vs</span>
-                <span className="col-start-2 font-bold sm:col-auto sm:text-right">{teamLabel(match.away)}</span>
+                <span className="col-start-2 font-bold sm:col-auto sm:text-right"><TeamLabel team={match.away} /></span>
               </div>
             ))}
           </div>
@@ -1652,7 +1925,44 @@ function Dashboard({
   );
 }
 
-function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function TournamentStatusPanel({
+  phaseStatus,
+  tournamentCountdown,
+}: {
+  phaseStatus: ReturnType<typeof getPhaseStatus>;
+  tournamentCountdown: ReturnType<typeof getTournamentCountdown>;
+}) {
+  if (tournamentCountdown.hasStarted) {
+    return (
+      <div className="glass hidden rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5 lg:block">
+        <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Aktuell fas</p>
+        <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">{phaseStatus.label}</h2>
+        <p className="mt-2 text-sm leading-relaxed text-white/60">{phaseStatus.description}</p>
+        <p className="mt-4 rounded-full bg-volt/10 px-4 py-2 text-sm font-bold text-volt">Öppet: {phaseStatus.openLabel}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="glass hidden rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5 lg:block">
+      <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Nedräkning</p>
+      <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">VM börjar snart</h2>
+      <p className="mt-2 text-sm leading-relaxed text-white/60">
+        Första matchen startar {formatDate(fixtures[0].date)} {fixtures[0].kickoffTime}.
+      </p>
+      <div className="mt-4 grid grid-cols-4 gap-2">
+        {tournamentCountdown.parts.map((part) => (
+          <div key={part.label} className="rounded-2xl bg-volt/10 px-2 py-3 text-center">
+            <p className="font-display text-xl font-black text-volt">{String(part.value).padStart(2, "0")}</p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">{part.label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: ReactNode }) {
   return (
     <div className="glass flex items-center gap-3 rounded-[1.5rem] p-4 sm:gap-4 sm:rounded-[2rem] sm:p-5">
       <div className="shrink-0 rounded-2xl bg-cyan/15 p-3 text-cyan">{icon}</div>
@@ -1684,6 +1994,105 @@ function PointsAreaChart({ data, heightClass }: { data: Array<{ date: string; po
         </AreaChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+function WinnersModal({ leaderboardRows, onClose }: { leaderboardRows: UserScore[]; onClose: () => void }) {
+  const podium = leaderboardRows.slice(0, 3);
+  const podiumLayout = [
+    { index: 1, place: 2, height: "h-28 sm:h-36", label: "Silver" },
+    { index: 0, place: 1, height: "h-36 sm:h-48", label: "Vinnare" },
+    { index: 2, place: 3, height: "h-24 sm:h-32", label: "Brons" },
+  ];
+
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 grid place-items-center overflow-hidden bg-black/70 p-3 backdrop-blur-sm sm:p-6"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.section
+        initial={{ opacity: 0, scale: 0.96, y: 16 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 16 }}
+        className="profile-gate-panel glass relative max-h-[92vh] overflow-hidden rounded-[1.75rem] border-volt/25 sm:rounded-[2rem]"
+      >
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-10 bg-gradient-to-b from-black/35 via-black/10 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-10 bg-gradient-to-t from-black/35 via-black/10 to-transparent" />
+
+        <div className="max-h-[92vh] overscroll-contain overflow-y-auto">
+          <button
+            onClick={onClose}
+            aria-label="Stäng vinnarruta"
+            className="sticky right-4 top-4 z-30 ml-auto mr-4 grid h-11 w-11 place-items-center rounded-2xl bg-white/10 text-white/70 transition hover:bg-white/15 hover:text-white"
+          >
+            <X size={22} />
+          </button>
+
+          <div className="-mt-11 px-4 pb-4 pt-6 sm:px-8 sm:pb-6 sm:pt-8">
+            <p className="text-xs uppercase tracking-[0.32em] text-volt sm:text-sm">VM-Tipset är avgjort</p>
+            <h2 className="mt-2 pr-12 font-display text-3xl font-black sm:text-5xl">Prispallen</h2>
+            <p className="mt-2 max-w-2xl text-sm text-white/60 sm:text-base">
+              Slutresultatet är sammanräknat. Här är vinnarna och hela slutställningen.
+            </p>
+
+            <div className="mt-6 grid grid-cols-3 items-end gap-2 sm:gap-4">
+              {podiumLayout.map(({ index, place, height, label }) => {
+                const user = podium[index];
+                if (!user) return <div key={place} />;
+
+                return (
+                  <div key={user.id} className="grid min-w-0 gap-3 text-center">
+                    <div className="mx-auto">
+                      <PodiumIcon index={index} size={index === 0 ? 34 : 28} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/45">{label}</p>
+                      <p className="truncate font-display text-lg font-black sm:text-2xl">{user.name}</p>
+                      <p className="font-display text-3xl font-black text-volt sm:text-5xl">{user.points}</p>
+                    </div>
+                    <div
+                      className={classNames(
+                        "grid place-items-center rounded-t-[1.25rem] border border-white/10 bg-white/10 font-display text-3xl font-black text-white/70",
+                        place === 1 && "border-volt/35 bg-volt/15 text-volt",
+                        height,
+                      )}
+                    >
+                      #{place}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="border-t border-white/10 px-4 py-4 sm:px-8 sm:py-6">
+            <h3 className="font-display text-xl font-black">Slutställning</h3>
+            <div className="mt-3 grid gap-2">
+              {leaderboardRows.map((user, index) => (
+                <div key={user.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-2xl bg-white/[0.06] px-4 py-3">
+                  <span className="w-8 text-sm font-bold text-white/45">#{index + 1}</span>
+                  <div className="min-w-0">
+                    <p className="truncate font-bold">{user.name}</p>
+                    <p className="text-xs text-white/45">{user.exact} exakta resultat</p>
+                  </div>
+                  <p className="font-display text-xl font-black text-volt">{user.points}p</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </motion.section>
+    </motion.div>
   );
 }
 
@@ -1801,7 +2210,7 @@ function RulesPanel() {
           </tbody>
         </table>
       </div>
-      <p className="mt-4 text-sm leading-relaxed text-white/60">Poäng räknas när admin har fyllt i resultat och låst matchdagen.</p>
+      <p className="mt-4 text-sm leading-relaxed text-white/60">Poäng räknas när matcherna är färdigspelade och resultaten finns inne.</p>
     </section>
   );
 }
@@ -1809,6 +2218,7 @@ function RulesPanel() {
 function PredictionsPanel({
   predictions,
   lockedDates,
+  lockedMatchIds,
   openKnockoutStages,
   phaseStatus,
   bonusAnswers,
@@ -1819,6 +2229,7 @@ function PredictionsPanel({
 }: {
   predictions: Prediction[];
   lockedDates: string[];
+  lockedMatchIds: number[];
   openKnockoutStages: MatchStage[];
   phaseStatus: ReturnType<typeof getPhaseStatus>;
   bonusAnswers: BonusPrediction;
@@ -1839,7 +2250,7 @@ function PredictionsPanel({
   );
   const allGroupDatesLocked = fixtures
     .filter((match) => match.stage === "Gruppspel")
-    .every((match) => lockedDates.includes(match.date));
+    .every((match) => isFixtureLocked(match, lockedDates, lockedMatchIds));
 
   if (tipMode === "menu") {
     return (
@@ -1862,7 +2273,7 @@ function PredictionsPanel({
               <p className="mt-6 text-sm uppercase tracking-[0.28em] text-volt">72 matcher</p>
               <h3 className="mt-2 font-display text-3xl font-black">Gruppspel</h3>
               <p className="mt-3 text-white/60">
-                {stageIsLocked("Gruppspel", lockedDates)
+                {stageIsLocked("Gruppspel", lockedDates, lockedMatchIds)
                   ? "Gruppspelet är låst. Du kan fortfarande se dina tips."
                   : "Tippa alla grupper A-L och se tabellerna uppdateras direkt."}
               </p>
@@ -1871,7 +2282,7 @@ function PredictionsPanel({
 
           <button
             onClick={() => setTipMode("knockout")}
-            disabled={!stageIsLocked("Gruppspel", lockedDates)}
+            disabled={!stageIsLocked("Gruppspel", lockedDates, lockedMatchIds)}
             className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-left transition hover:-translate-y-1 hover:border-flare/50 hover:bg-flare/10 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0 sm:rounded-[2rem] sm:p-6"
           >
             <div className="grid h-14 w-14 place-items-center rounded-2xl bg-flare/15 text-flare">
@@ -1880,7 +2291,7 @@ function PredictionsPanel({
             <p className="mt-6 text-sm uppercase tracking-[0.28em] text-flare">Slutspel</p>
             <h3 className="mt-2 font-display text-3xl font-black">Slutspelsträd</h3>
             <p className="mt-3 text-white/60">
-              {stageIsLocked("Gruppspel", lockedDates)
+              {stageIsLocked("Gruppspel", lockedDates, lockedMatchIds)
                 ? `Öppen fas: ${phaseStatus.openLabel}.`
                 : "Låses upp när gruppspelet är färdigspelat och låst."}
             </p>
@@ -1896,6 +2307,7 @@ function PredictionsPanel({
         <KnockoutPredictionPanel
           predictions={predictions}
           lockedDates={lockedDates}
+          lockedMatchIds={lockedMatchIds}
           sourceResults={predictedResults}
           resolveTeams={allGroupDatesLocked}
           openKnockoutStages={openKnockoutStages}
@@ -1942,7 +2354,7 @@ function PredictionsPanel({
                 <div className="grid gap-2 p-2 sm:p-3">
                   {groupMatches.map((match) => {
                     const prediction = predictionMap.get(match.id);
-                    const isLocked = lockedDates.includes(match.date);
+                    const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
                     return (
                       <div
                         key={match.id}
@@ -1953,7 +2365,7 @@ function PredictionsPanel({
                       >
                         <span className="pt-1 text-sm font-bold text-white/40">#{match.id}</span>
                         <div>
-                          <p className="font-bold">{teamLabel(match.home)}</p>
+                          <p className="font-bold"><TeamLabel team={match.home} /></p>
                           <p className="text-xs text-white/40">
                             {formatDate(match.date)}
                             {isLocked ? " · Låst" : ""}
@@ -1981,7 +2393,7 @@ function PredictionsPanel({
                           />
                         </div>
                         <div className="col-span-2 text-left sm:col-span-1 sm:text-right">
-                          <p className="font-bold">{teamLabel(match.away)}</p>
+                          <p className="font-bold"><TeamLabel team={match.away} /></p>
                           <p className="text-xs text-white/40">Tecken: {prediction?.winner ?? "Ej tippat"}</p>
                         </div>
                       </div>
@@ -2059,7 +2471,7 @@ function LivePredictionTable({ group, results }: { group: GroupLetter; results: 
             {standings.map((team, index) => (
               <tr key={team.team} className="border-t border-white/10">
                 <td className="px-3 py-2 text-white/45">{index + 1}</td>
-                <td className="px-3 py-2 font-bold">{teamLabel(team.team)}</td>
+                <td className="px-3 py-2 font-bold"><TeamLabel team={team.team} /></td>
                 <td className="px-3 py-2">{team.played}</td>
                 <td className="px-3 py-2">{team.won}</td>
                 <td className="px-3 py-2">{team.drawn}</td>
@@ -2125,7 +2537,7 @@ function GroupsPanel({
             >
               <div className="flex min-w-0 items-center gap-2 text-left">
                 <span className="w-4 shrink-0 text-white/45">{index + 1}</span>
-                <span className="min-w-0 truncate font-bold">{teamLabel(team.team)}</span>
+                <span className="min-w-0 truncate font-bold"><TeamLabel team={team.team} /></span>
               </div>
               <span>{team.played}</span>
               <span>{team.won}</span>
@@ -2151,7 +2563,12 @@ function GroupsPanel({
             <tbody>
               {standings.map((team, index) => (
                 <tr key={team.team} className="border-t border-white/10">
-                  <td className="truncate px-2 py-4 font-bold sm:px-3">{index + 1}. {teamLabel(team.team)}</td>
+                  <td className="truncate px-2 py-4 font-bold sm:px-3">
+                    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+                      <span>{index + 1}.</span>
+                      <TeamLabel team={team.team} />
+                    </span>
+                  </td>
                   <td className="px-2 py-4 sm:px-3">{team.played}</td>
                   <td className="px-2 py-4 sm:px-3">{team.won}</td>
                   <td className="px-2 py-4 sm:px-3">{team.drawn}</td>
@@ -2171,7 +2588,10 @@ function GroupsPanel({
         <div className="mt-4 space-y-3">
           {thirdPlaced.map(({ group, standing }, index) => (
             <div key={group} className="flex min-w-0 items-center justify-between gap-3 rounded-2xl bg-white/5 p-4">
-              <span className="min-w-0 truncate">{index + 1}. Grupp {group} · {teamLabel(standing.team)}</span>
+              <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate">
+                <span>{index + 1}. Grupp {group}</span>
+                <TeamLabel team={standing.team} />
+              </span>
               <span className="shrink-0 font-black text-volt">{standing.points}p</span>
             </div>
           ))}
@@ -2184,6 +2604,7 @@ function GroupsPanel({
 function KnockoutPredictionPanel({
   predictions,
   lockedDates,
+  lockedMatchIds,
   sourceResults,
   resolveTeams,
   openKnockoutStages,
@@ -2193,6 +2614,7 @@ function KnockoutPredictionPanel({
 }: {
   predictions: Prediction[];
   lockedDates: string[];
+  lockedMatchIds: number[];
   sourceResults: Record<number, ScoreLine>;
   resolveTeams: boolean;
   openKnockoutStages: MatchStage[];
@@ -2205,6 +2627,7 @@ function KnockoutPredictionPanel({
     sourceResults,
     predictions,
     lockedDates,
+    lockedMatchIds,
     resolveGroupTeams: resolveTeams,
   });
   const completedCount = knockout.filter((match) => predictionMap.get(match.id)?.score).length;
@@ -2244,7 +2667,7 @@ function KnockoutPredictionPanel({
               <div className="grid gap-2 p-2 sm:p-3">
                 {stageMatches.map((match) => {
                   const prediction = predictionMap.get(match.id);
-                  const isLocked = lockedDates.includes(match.date);
+                  const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
                   const isOpenStage = openKnockoutStages.includes(match.stage);
                   const isEditable = resolveTeams && isOpenStage && !isLocked;
                   const isDraw = prediction?.score?.home === prediction?.score?.away;
@@ -2261,11 +2684,11 @@ function KnockoutPredictionPanel({
                     >
                       <span className="pt-1 text-sm font-bold text-white/40">#{match.id}</span>
                       <div>
-                        <p className="font-bold">{teamLabel(match.resolvedHome)}</p>
+                        <p className="font-bold"><TeamLabel team={match.resolvedHome} /></p>
                         <p className="text-xs text-white/40">
                           {formatDate(match.date)} {match.kickoffTime} · {statusLabel}
                         </p>
-                        {match.resolvedHome !== match.home && <p className="text-xs text-white/30">{teamLabel(match.home)}</p>}
+                        {match.resolvedHome !== match.home && <p className="text-xs text-white/30"><TeamLabel team={match.home} /></p>}
                       </div>
                       <div className="col-span-2 flex items-center justify-center gap-2 py-1 sm:col-span-1 sm:py-0">
                         <input
@@ -2289,8 +2712,8 @@ function KnockoutPredictionPanel({
                         />
                       </div>
                       <div className="col-span-2 text-left sm:col-span-1 sm:text-right">
-                        <p className="font-bold">{teamLabel(match.resolvedAway)}</p>
-                        {match.resolvedAway !== match.away && <p className="text-xs text-white/30">{teamLabel(match.away)}</p>}
+                        <p className="font-bold"><TeamLabel team={match.resolvedAway} /></p>
+                        {match.resolvedAway !== match.away && <p className="text-xs text-white/30"><TeamLabel team={match.away} /></p>}
                         <p className="text-xs text-white/40">Vidare: {winner}</p>
                         {isDraw ? (
                           <select
@@ -2304,8 +2727,8 @@ function KnockoutPredictionPanel({
                             className="mt-2 w-full rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-xs font-bold outline-none focus:border-flare disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
                           >
                             <option value="">Välj lag vidare</option>
-                            <option value={match.resolvedHome}>{teamLabel(match.resolvedHome)}</option>
-                            <option value={match.resolvedAway}>{teamLabel(match.resolvedAway)}</option>
+                            <option value={match.resolvedHome}>{match.resolvedHome}</option>
+                            <option value={match.resolvedAway}>{match.resolvedAway}</option>
                           </select>
                         ) : null}
                       </div>
@@ -2324,20 +2747,23 @@ function KnockoutPredictionPanel({
 function KnockoutPanel({
   sourceResults = {},
   lockedDates = [],
+  lockedMatchIds = [],
   resultWinners = {},
   title = "Officiellt slutspel",
   description,
 }: {
   sourceResults?: Record<number, ScoreLine>;
   lockedDates?: string[];
+  lockedMatchIds?: number[];
   resultWinners?: Record<number, string>;
   title?: string;
   description?: string;
 }) {
-  const groupStageLocked = stageIsLocked("Gruppspel", lockedDates);
+  const groupStageLocked = stageIsLocked("Gruppspel", lockedDates, lockedMatchIds);
   const knockout = buildResolvedKnockoutFixtures({
     sourceResults,
     lockedDates,
+    lockedMatchIds,
     resolveGroupTeams: groupStageLocked,
     useSourceResultsForAdvancement: true,
     advancementWinners: resultWinners,
@@ -2365,7 +2791,7 @@ function KnockoutPanel({
       </div>
       <div className="flex gap-4 overflow-x-auto pb-4">
         {stageOrder.map((stage) => {
-          const stageLocked = stageIsLocked(stage, lockedDates);
+          const stageLocked = stageIsLocked(stage, lockedDates, lockedMatchIds);
           const previousStage: Partial<Record<MatchStage, MatchStage>> = {
             Åttondelsfinal: "Sextondelsfinal",
             Kvartsfinal: "Åttondelsfinal",
@@ -2373,7 +2799,7 @@ function KnockoutPanel({
             Bronsmatch: "Semifinal",
             Final: "Semifinal",
           };
-          const previousLocked = stage === "Sextondelsfinal" ? groupStageLocked : stageIsLocked(previousStage[stage]!, lockedDates);
+          const previousLocked = stage === "Sextondelsfinal" ? groupStageLocked : stageIsLocked(previousStage[stage]!, lockedDates, lockedMatchIds);
           const stageStatus = stageLocked ? "Klar" : previousLocked ? "Aktiv/kommande" : "Låst";
 
           return (
@@ -2398,7 +2824,7 @@ function KnockoutPanel({
                   .filter((match) => match.stage === stage)
                   .map((match) => {
                     const result = sourceResults[match.id];
-                    const isLocked = lockedDates.includes(match.date);
+                    const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
                     const winner = result ? matchWinner(match.resolvedHome, match.resolvedAway, result, resultWinners[match.id]) : undefined;
 
                     return (
@@ -2418,12 +2844,12 @@ function KnockoutPanel({
 
                         <div className="mt-3 grid gap-2">
                           <div className={classNames("rounded-2xl px-3 py-2", winner === match.resolvedHome ? "bg-volt/15 text-volt" : "bg-white/[0.04]")}>
-                            <p className="font-bold">{teamLabel(match.resolvedHome)}</p>
-                            {match.resolvedHome !== match.home && <p className="text-xs text-white/35">{teamLabel(match.home)}</p>}
+                            <p className="font-bold"><TeamLabel team={match.resolvedHome} /></p>
+                            {match.resolvedHome !== match.home && <p className="text-xs text-white/35"><TeamLabel team={match.home} /></p>}
                           </div>
                           <div className={classNames("rounded-2xl px-3 py-2", winner === match.resolvedAway ? "bg-volt/15 text-volt" : "bg-white/[0.04]")}>
-                            <p className="font-bold">{teamLabel(match.resolvedAway)}</p>
-                            {match.resolvedAway !== match.away && <p className="text-xs text-white/35">{teamLabel(match.away)}</p>}
+                            <p className="font-bold"><TeamLabel team={match.resolvedAway} /></p>
+                            {match.resolvedAway !== match.away && <p className="text-xs text-white/35"><TeamLabel team={match.away} /></p>}
                           </div>
                         </div>
 
@@ -2444,6 +2870,296 @@ function KnockoutPanel({
     </section>
   );
 }
+
+function KnockoutBracketBeta({
+  sourceResults = {},
+  lockedDates = [],
+  lockedMatchIds = [],
+  resultWinners = {},
+}: {
+  sourceResults?: Record<number, ScoreLine>;
+  lockedDates?: string[];
+  lockedMatchIds?: number[];
+  resultWinners?: Record<number, string>;
+}) {
+  const groupStageLocked = stageIsLocked("Gruppspel", lockedDates, lockedMatchIds);
+  const knockout = buildResolvedKnockoutFixtures({
+    sourceResults,
+    lockedDates,
+    lockedMatchIds,
+    resolveGroupTeams: groupStageLocked,
+    useSourceResultsForAdvancement: true,
+    advancementWinners: resultWinners,
+  });
+  const matchById = new Map(knockout.map((match) => [match.id, match]));
+  const leftSide = {
+    round32: [74, 77, 73, 75, 83, 84, 81, 82],
+    round16: [89, 90, 93, 94],
+    quarter: [97, 98],
+    semi: [101],
+  };
+  const rightSide = {
+    round32: [76, 78, 79, 80, 86, 88, 85, 87],
+    round16: [91, 92, 95, 96],
+    quarter: [99, 100],
+    semi: [102],
+  };
+
+  return (
+    <section className="glass overflow-hidden rounded-[2rem] p-4 sm:p-6">
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-flare sm:text-sm">Slutspel BETA</p>
+          <h2 className="mt-2 font-display text-3xl font-black">Slutspelsträd</h2>
+          <p className="mt-2 max-w-2xl text-sm text-white/55">
+            Tvåsidigt bracket-test. Nuvarande Slutspel-flik finns kvar oförändrad.
+          </p>
+        </div>
+        <p className="rounded-full bg-flare/10 px-4 py-2 text-sm font-bold text-flare">
+          {groupStageLocked ? "Gruppspelet låst" : "Väntar på gruppspel"}
+        </p>
+      </div>
+
+      <div className="-mx-4 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6">
+        <div className="grid min-w-[2380px] grid-cols-[940px_500px_940px] items-center gap-0">
+          <BracketSide
+            side="left"
+            rounds={leftSide}
+            matchById={matchById}
+            sourceResults={sourceResults}
+            resultWinners={resultWinners}
+            lockedDates={lockedDates}
+            lockedMatchIds={lockedMatchIds}
+          />
+
+          <BracketFinalStage
+            matchById={matchById}
+            sourceResults={sourceResults}
+            resultWinners={resultWinners}
+            lockedDates={lockedDates}
+            lockedMatchIds={lockedMatchIds}
+          />
+
+          <BracketSide
+            side="right"
+            rounds={rightSide}
+            matchById={matchById}
+            sourceResults={sourceResults}
+            resultWinners={resultWinners}
+            lockedDates={lockedDates}
+            lockedMatchIds={lockedMatchIds}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function BracketSide({
+  side,
+  rounds,
+  matchById,
+  sourceResults,
+  resultWinners,
+  lockedDates,
+  lockedMatchIds,
+}: {
+  side: "left" | "right";
+  rounds: { round32: number[]; round16: number[]; quarter: number[]; semi: number[] };
+  matchById: Map<number, ResolvedKnockoutFixture>;
+  sourceResults: Record<number, ScoreLine>;
+  resultWinners: Record<number, string>;
+  lockedDates: string[];
+  lockedMatchIds: number[];
+}) {
+  const cardColumn = (title: string, ids: number[], span: number) => (
+    <div className="grid grid-rows-[32px_repeat(8,132px)] gap-y-3">
+      <BracketRoundHeader title={title} />
+      {ids.map((id, index) => {
+        const match = matchById.get(id);
+        if (!match) return null;
+        const rowStart = 2 + index * span;
+        return (
+          <div key={id} className="flex items-center" style={{ gridRow: `${rowStart} / span ${span}` }}>
+            <BracketMatchCard
+              match={match}
+              result={sourceResults[id]}
+              resultWinner={resultWinners[id]}
+              isLocked={isFixtureLocked(match, lockedDates, lockedMatchIds)}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const connectorColumn = (span: number) => (
+    <div className="grid grid-rows-[32px_repeat(8,132px)] gap-y-3">
+      <div />
+      {Array.from({ length: 8 / span }).map((_, index) => (
+        <BracketConnector
+          key={`${span}-${index}`}
+          side={side}
+          style={{ gridRow: `${2 + index * span} / span ${span}` }}
+        />
+      ))}
+    </div>
+  );
+
+  const columns =
+    side === "left"
+      ? [
+          cardColumn("Sextondelsfinal", rounds.round32, 1),
+          connectorColumn(2),
+          cardColumn("Åttondelsfinal", rounds.round16, 2),
+          connectorColumn(4),
+          cardColumn("Kvartsfinal", rounds.quarter, 4),
+          connectorColumn(8),
+          cardColumn("Semifinal", rounds.semi, 8),
+        ]
+      : [
+          cardColumn("Semifinal", rounds.semi, 8),
+          connectorColumn(8),
+          cardColumn("Kvartsfinal", rounds.quarter, 4),
+          connectorColumn(4),
+          cardColumn("Åttondelsfinal", rounds.round16, 2),
+          connectorColumn(2),
+          cardColumn("Sextondelsfinal", rounds.round32, 1),
+        ];
+
+  return (
+    <div className="grid grid-cols-[220px_36px_220px_36px_220px_36px_220px] gap-x-0">
+      {columns.map((column, index) => (
+        <div key={index}>{column}</div>
+      ))}
+    </div>
+  );
+}
+
+function BracketFinalStage({
+  matchById,
+  sourceResults,
+  resultWinners,
+  lockedDates,
+  lockedMatchIds,
+}: {
+  matchById: Map<number, ResolvedKnockoutFixture>;
+  sourceResults: Record<number, ScoreLine>;
+  resultWinners: Record<number, string>;
+  lockedDates: string[];
+  lockedMatchIds: number[];
+}) {
+  const finalMatch = matchById.get(104);
+  const bronzeMatch = matchById.get(103);
+
+  return (
+    <div className="relative grid min-w-[500px] grid-rows-[32px_repeat(8,132px)] gap-y-3">
+      <div />
+
+      <div className="pointer-events-none absolute left-0 top-1/2 h-px w-[24%] bg-white/25" />
+      <div className="pointer-events-none absolute left-[24%] top-[29%] h-[42%] w-px bg-white/25" />
+      <div className="pointer-events-none absolute left-[24%] top-[29%] h-px w-[6%] bg-white/25" />
+      <div className="pointer-events-none absolute left-[24%] top-[71%] h-px w-[6%] bg-white/25" />
+      <div className="pointer-events-none absolute right-0 top-1/2 h-px w-[24%] bg-white/25" />
+      <div className="pointer-events-none absolute right-[24%] top-[29%] h-[42%] w-px bg-white/25" />
+      <div className="pointer-events-none absolute right-[24%] top-[29%] h-px w-[6%] bg-white/25" />
+      <div className="pointer-events-none absolute right-[24%] top-[71%] h-px w-[6%] bg-white/25" />
+
+      {finalMatch ? (
+        <div className="relative z-10 flex items-center px-[30%]" style={{ gridRow: "3 / span 2" }}>
+          <BracketMatchCard
+            match={finalMatch}
+            result={sourceResults[104]}
+            resultWinner={resultWinners[104]}
+            isLocked={isFixtureLocked(finalMatch, lockedDates, lockedMatchIds)}
+            featured
+          />
+        </div>
+      ) : null}
+
+      {bronzeMatch ? (
+        <div className="relative z-10 flex items-center px-[30%]" style={{ gridRow: "6 / span 2" }}>
+          <BracketMatchCard
+            match={bronzeMatch}
+            result={sourceResults[103]}
+            resultWinner={resultWinners[103]}
+            isLocked={isFixtureLocked(bronzeMatch, lockedDates, lockedMatchIds)}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function BracketRoundHeader({ title }: { title: string }) {
+  return (
+    <p className="rounded-full bg-white/10 px-3 py-1 text-center text-xs font-bold uppercase tracking-[0.18em] text-white/45">
+      {title}
+    </p>
+  );
+}
+
+function BracketConnector({ side, style }: { side: "left" | "right"; style: React.CSSProperties }) {
+  return (
+    <div className="relative" style={style}>
+      <span className="absolute top-1/4 h-px w-1/2 bg-white/25" style={side === "left" ? { left: 0 } : { right: 0 }} />
+      <span className="absolute top-3/4 h-px w-1/2 bg-white/25" style={side === "left" ? { left: 0 } : { right: 0 }} />
+      <span className="absolute top-1/4 h-1/2 w-px bg-white/25" style={side === "left" ? { left: "50%" } : { right: "50%" }} />
+      <span className="absolute top-1/2 h-px w-1/2 bg-white/25" style={side === "left" ? { right: 0 } : { left: 0 }} />
+    </div>
+  );
+}
+
+function BracketMatchCard({
+  match,
+  result,
+  resultWinner,
+  isLocked,
+  featured = false,
+}: {
+  match: ResolvedKnockoutFixture;
+  result?: ScoreLine;
+  resultWinner?: string;
+  isLocked: boolean;
+  featured?: boolean;
+}) {
+  const winner = result ? matchWinner(match.resolvedHome, match.resolvedAway, result, resultWinner) : undefined;
+  const teamRows = [
+    { team: match.resolvedHome, score: result?.home },
+    { team: match.resolvedAway, score: result?.away },
+  ];
+
+  return (
+    <article
+      className={classNames(
+        "w-full rounded-2xl border bg-black/25 p-3 shadow-sm",
+        featured ? "border-flare/35 bg-flare/10" : isLocked ? "border-volt/25 bg-volt/5" : "border-white/10",
+      )}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/45">Match {match.id}</p>
+        <span className={classNames("rounded-full px-2 py-0.5 text-[10px] font-bold", isLocked ? "bg-volt/15 text-volt" : "bg-white/10 text-white/45")}>
+          {isLocked ? "Klar" : formatDate(match.date)}
+        </span>
+      </div>
+      <div className="grid gap-1">
+        {teamRows.map(({ team, score }) => (
+          <div
+            key={team}
+            className={classNames(
+              "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl px-2 py-1.5",
+              winner === team ? "bg-volt/15 text-volt" : "bg-white/[0.04]",
+            )}
+          >
+            <span className="min-w-0 truncate text-sm font-bold">{team}</span>
+            <span className="font-display text-sm font-black">{score ?? "-"}</span>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
 function AdminPanel({
   results,
   resultWinners,
@@ -2460,8 +3176,12 @@ function AdminPanel({
   resetProfilePassword,
   randomizeDevData,
   resetDevData,
+  openWinnersModal,
   lockedDates,
+  lockedMatchIds,
   toggleLockedDate,
+  toggleLockedMatch,
+  matchSyncMessage,
   homePreviewDate,
   setHomePreviewDate,
   officialBonusAnswers,
@@ -2482,8 +3202,12 @@ function AdminPanel({
   resetProfilePassword: (profileId: string) => void;
   randomizeDevData: () => void;
   resetDevData: () => void;
+  openWinnersModal: () => void;
   lockedDates: string[];
+  lockedMatchIds: number[];
   toggleLockedDate: (date: string) => void;
+  toggleLockedMatch: (matchId: number) => void;
+  matchSyncMessage: string;
   homePreviewDate: string;
   setHomePreviewDate: (date: string) => void;
   officialBonusAnswers: BonusPrediction;
@@ -2493,7 +3217,8 @@ function AdminPanel({
   const resolvedAdminKnockout = buildResolvedKnockoutFixtures({
     sourceResults: results,
     lockedDates,
-    resolveGroupTeams: stageIsLocked("Gruppspel", lockedDates),
+    lockedMatchIds,
+    resolveGroupTeams: stageIsLocked("Gruppspel", lockedDates, lockedMatchIds),
     useSourceResultsForAdvancement: true,
     advancementWinners: resultWinners,
   });
@@ -2519,10 +3244,13 @@ function AdminPanel({
         <p className="text-xs uppercase tracking-[0.28em] text-coral sm:text-sm sm:tracking-[0.3em]">Adminpanel</p>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <h2 className="font-display text-2xl font-black sm:text-3xl">Mata in riktiga resultat</h2>
-          <p className="mt-1 text-sm text-white/55">Resultat ger poäng först när matchdagen är låst.</p>
+          <p className="mt-1 text-sm text-white/55">Matcher låses automatiskt vid avspark. Slutresultat kan synkas från API.</p>
           <p className="rounded-full bg-coral/10 px-4 py-2 text-sm font-bold text-coral">
             {Object.keys(results).length}/104 resultat
           </p>
+          {matchSyncMessage ? (
+            <p className="rounded-full bg-white/10 px-4 py-2 text-sm font-bold text-white/65">{matchSyncMessage}</p>
+          ) : null}
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:overflow-x-auto sm:pb-2">
@@ -2541,7 +3269,10 @@ function AdminPanel({
         </div>
 
         <div className="mt-3 grid gap-5">
-          {adminFixturesByDate.map((day) => (
+          {adminFixturesByDate.map((day) => {
+            const dayLocked = day.matches.every((match) => isFixtureLocked(match, lockedDates, lockedMatchIds));
+
+            return (
             <section key={day.date} className="overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/20 sm:rounded-[1.75rem]">
               <div className="flex flex-col gap-3 border-b border-white/10 bg-white/[0.06] px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
                 <div>
@@ -2551,23 +3282,23 @@ function AdminPanel({
                 <div className="flex flex-wrap items-center justify-end gap-3">
                   <p className="rounded-full bg-white/10 px-3 py-1 text-sm text-white/60">{day.matches.length} matcher</p>
                   <label className="flex cursor-pointer items-center gap-2 rounded-full bg-white/10 px-3 py-2 text-sm font-bold text-white/70">
-                    <span>{lockedDates.includes(day.date) ? "Låst" : "Lås dag"}</span>
+                    <span>{dayLocked ? "Låst" : "Lås dag"}</span>
                     <input
                       type="checkbox"
-                      checked={lockedDates.includes(day.date)}
+                      checked={dayLocked}
                       onChange={() => toggleLockedDate(day.date)}
                       className="peer sr-only"
                     />
                     <span
                       className={classNames(
                         "relative h-6 w-11 rounded-full transition",
-                        lockedDates.includes(day.date) ? "bg-coral" : "bg-white/20",
+                        dayLocked ? "bg-coral" : "bg-white/20",
                       )}
                     >
                       <span
                         className={classNames(
                           "absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition",
-                          lockedDates.includes(day.date) && "translate-x-5",
+                          dayLocked && "translate-x-5",
                         )}
                       />
                     </span>
@@ -2581,6 +3312,7 @@ function AdminPanel({
                   const home = resolvedMatch.resolvedHome ?? match.home;
                   const away = resolvedMatch.resolvedAway ?? match.away;
                   const result = results[match.id];
+                  const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
                   const selectedWinner =
                     resultWinners[match.id] && [home, away].includes(resultWinners[match.id])
                       ? resultWinners[match.id]
@@ -2589,18 +3321,37 @@ function AdminPanel({
                   return (
                   <div key={match.id} className="grid gap-3 rounded-2xl bg-white/5 p-3 sm:grid-cols-[1fr_auto] sm:items-center sm:rounded-3xl">
                     <div>
-                      <p className="font-bold">{teamLabel(home)} - {teamLabel(away)}</p>
+                      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 font-bold">
+                        <TeamLabel team={home} />
+                        <span>-</span>
+                        <TeamLabel team={away} />
+                      </p>
                       <p className="text-sm text-white/45">
                         Match {match.id}
                         {match.group ? ` · Grupp ${match.group}` : ` · ${match.stage}`}
+                        {isLocked ? " · Låst" : ""}
                       </p>
                       {match.stage !== "Gruppspel" && (home !== match.home || away !== match.away) ? (
                         <p className="text-xs text-white/35">
-                          {teamLabel(match.home)} - {teamLabel(match.away)}
+                          <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                            <TeamLabel team={match.home} />
+                            <span>-</span>
+                            <TeamLabel team={match.away} />
+                          </span>
                         </p>
                       ) : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => toggleLockedMatch(match.id)}
+                        className={classNames(
+                          "h-11 rounded-2xl px-3 text-xs font-bold transition",
+                          isLocked ? "bg-coral/20 text-coral" : "bg-white/10 text-white/60 hover:text-white",
+                        )}
+                      >
+                        {isLocked ? "Låst" : "Lås"}
+                      </button>
                       <input type="number" min={0} value={results[match.id]?.home ?? 0} onChange={(event) => updateResult(match.id, "home", Number(event.target.value))} className="h-11 w-14 rounded-2xl bg-black/30 text-center font-black outline-none focus:ring-2 focus:ring-coral" />
                       <span>-</span>
                       <input type="number" min={0} value={results[match.id]?.away ?? 0} onChange={(event) => updateResult(match.id, "away", Number(event.target.value))} className="h-11 w-14 rounded-2xl bg-black/30 text-center font-black outline-none focus:ring-2 focus:ring-coral" />
@@ -2612,8 +3363,8 @@ function AdminPanel({
                           aria-label={`Vinnare match ${match.id}`}
                         >
                           <option value="">Välj vinnare</option>
-                          <option value={home}>{teamLabel(home)}</option>
-                          <option value={away}>{teamLabel(away)}</option>
+                          <option value={home}>{home}</option>
+                          <option value={away}>{away}</option>
                         </select>
                       ) : null}
                     </div>
@@ -2622,7 +3373,8 @@ function AdminPanel({
                 })}
               </div>
             </section>
-          ))}
+            );
+          })}
         </div>
       </section>
       <aside className="space-y-5">
@@ -2761,7 +3513,11 @@ function AdminPanel({
                   <div key={match.id} className="grid grid-cols-[44px_1fr] gap-2 rounded-2xl bg-white/5 p-2 text-sm">
                     <span className="font-display font-black text-volt">{match.kickoffTime}</span>
                     <span className="min-w-0 truncate font-bold">
-                      {teamLabel(match.home)} - {teamLabel(match.away)}
+                      <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+                        <TeamLabel team={match.home} />
+                        <span>-</span>
+                        <TeamLabel team={match.away} />
+                      </span>
                     </span>
                   </div>
                 ))}
@@ -2798,6 +3554,12 @@ function AdminPanel({
               className="rounded-2xl bg-white/10 px-4 py-3 font-display font-black text-white/70 transition hover:bg-white/15"
             >
               Nolla devdata
+            </button>
+            <button
+              onClick={openWinnersModal}
+              className="rounded-2xl bg-flare/90 px-4 py-3 font-display font-black text-pitch transition hover:brightness-110"
+            >
+              Visa vinnarruta
             </button>
           </div>
         </div>
