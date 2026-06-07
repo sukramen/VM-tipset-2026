@@ -2532,10 +2532,16 @@ function RulesPanel() {
       <h3 className="font-display text-base font-black text-volt sm:text-lg">{title}</h3>
       <div className="mt-3 space-y-2">
         {rows.map(([label, value]) => (
-          <div key={label} className="grid gap-1 rounded-2xl bg-white/[0.04] px-3 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] sm:items-start sm:gap-4 sm:text-sm">
+          <div
+            key={label}
+            className={classNames(
+              "grid gap-1 rounded-2xl bg-white/[0.04] px-3 py-2 text-xs sm:items-start sm:gap-4 sm:text-sm",
+              Array.isArray(value) ? "sm:grid-cols-1" : "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]",
+            )}
+          >
             <span className="text-white/75">{label}</span>
             {Array.isArray(value) ? (
-              <span className="grid grid-cols-2 gap-2 sm:col-span-2 lg:grid-cols-3">
+              <span className="grid grid-cols-2 gap-2 lg:grid-cols-3">
                 {value.map((item) => {
                   const [round, multiplier] = item.split(" x");
                   return (
