@@ -2535,7 +2535,7 @@ function RulesPanel() {
           <div key={label} className="grid gap-1 rounded-2xl bg-white/[0.04] px-3 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] sm:items-start sm:gap-4 sm:text-sm">
             <span className="text-white/75">{label}</span>
             {Array.isArray(value) ? (
-              <span className="grid grid-cols-[repeat(auto-fit,minmax(104px,1fr))] gap-2 sm:col-span-2 lg:grid-cols-3 2xl:grid-cols-6">
+              <span className="grid grid-cols-2 gap-2 sm:col-span-2 lg:grid-cols-3">
                 {value.map((item) => {
                   const [round, multiplier] = item.split(" x");
                   return (
