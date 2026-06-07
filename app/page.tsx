@@ -59,7 +59,7 @@ const groupLetters = Object.keys(groups) as GroupLetter[];
 const fixtureDates = Array.from(new Set(fixtures.map((fixture) => fixture.date))).sort();
 const predictionsVersion = "5";
 const bonusVersion = "3";
-const requireAdminPassword = false;
+const requireAdminPassword = true;
 const matchDaySyncIntervalMs = 15 * 60_000;
 const liveMatchSyncIntervalMs = 3 * 60_000;
 const liveMatchWindowMs = 3 * 60 * 60_000;
@@ -2693,6 +2693,32 @@ function PredictionsPanel({
   const groupStageMatches = fixtures.filter((match) => match.stage === "Gruppspel");
   const allGroupResultsAvailable = groupStageMatches.every((match) => actualResults[match.id]);
   const actualOpenKnockoutStages = getOpenActualKnockoutStages(actualResults, actualResultWinners, lockedDates, lockedMatchIds);
+  const groupPredictionSummary = groupStageMatches.reduce(
+    (summary, match) => {
+      const prediction = predictionMap.get(match.id);
+      if (!prediction?.score) return summary;
+
+      const homeGoals = prediction.score.home;
+      const awayGoals = prediction.score.away;
+
+      summary.totalGoals += homeGoals + awayGoals;
+      summary.biggestMargin = Math.max(summary.biggestMargin, Math.abs(homeGoals - awayGoals));
+      summary.teamGoals[match.home] = (summary.teamGoals[match.home] ?? 0) + homeGoals;
+      summary.teamGoals[match.away] = (summary.teamGoals[match.away] ?? 0) + awayGoals;
+
+      return summary;
+    },
+    {
+      totalGoals: 0,
+      biggestMargin: 0,
+      teamGoals: {} as Record<string, number>,
+    },
+  );
+  const topGroupGoalTotal = Math.max(0, ...Object.values(groupPredictionSummary.teamGoals));
+  const topGroupScorers = Object.entries(groupPredictionSummary.teamGoals)
+    .filter(([, goals]) => goals === topGroupGoalTotal)
+    .map(([team]) => team)
+    .sort((a, b) => a.localeCompare(b, "sv"));
 
   if (tipMode === "menu") {
     return (
@@ -2878,6 +2904,25 @@ function PredictionsPanel({
             >
               Nollställ mitt tips
             </button>
+          </div>
+        </div>
+        <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
+          <p className="text-sm uppercase tracking-[0.3em] text-volt">Gruppspelssummering</p>
+          <div className="mt-4 grid gap-3">
+            <div className="rounded-2xl bg-black/20 p-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-white/45">Tippade mål totalt</p>
+              <p className="mt-1 font-display text-2xl font-black text-white">{groupPredictionSummary.totalGoals}</p>
+            </div>
+            <div className="rounded-2xl bg-black/20 p-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-white/45">Största segermarginal</p>
+              <p className="mt-1 font-display text-2xl font-black text-white">{groupPredictionSummary.biggestMargin}</p>
+            </div>
+            <div className="rounded-2xl bg-black/20 p-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-white/45">Flest mål i gruppspel</p>
+              <p className="mt-1 text-sm font-bold text-white/85">
+                {topGroupScorers.length > 0 ? topGroupScorers.join(", ") : "Inga tips ännu"}
+              </p>
+            </div>
           </div>
         </div>
         <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
