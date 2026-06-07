@@ -229,10 +229,13 @@ export async function saveResultsToDb(results: Record<number, ScoreLine>, result
   }));
   await enqueueWrite("match-results", () =>
     withRetryOnWriteConflict(async () => {
-      const { error: deleteError } = await supabase.from("vm_match_results").delete().neq("match_id", -1);
-      if (deleteError) throw deleteError;
-      if (rows.length === 0) return;
-      const { error } = await supabase.from("vm_match_results").insert(rows);
+      if (rows.length === 0) {
+        const { error } = await supabase.from("vm_match_results").delete().neq("match_id", -1);
+        if (error) throw error;
+        return;
+      }
+
+      const { error } = await supabase.from("vm_match_results").upsert(rows, { onConflict: "match_id" });
       if (error) throw error;
     }),
   );

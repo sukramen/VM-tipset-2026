@@ -25,8 +25,6 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -812,6 +810,7 @@ export default function Home() {
   const [selectedGroup, setSelectedGroup] = useState<GroupLetter>("A");
   const [profiles, setProfiles] = useState<PlayerProfile[]>([]);
   const [currentProfile, setCurrentProfile] = useState<PlayerProfile | null>(null);
+  const [loadedProfileId, setLoadedProfileId] = useState<string>();
   const [newPlayerName, setNewPlayerName] = useState("");
   const [newPlayerPassword, setNewPlayerPassword] = useState("");
   const [authProfile, setAuthProfile] = useState<PlayerProfile | null>(null);
@@ -954,6 +953,7 @@ export default function Home() {
   useEffect(() => {
     if (!currentProfile) return;
 
+    setLoadedProfileId(undefined);
     window.localStorage.setItem("vm-tipset-active-profile", currentProfile.id);
     const saved =
       allPredictionsRef.current[currentProfile.id] ??
@@ -967,11 +967,13 @@ export default function Home() {
         ? readStoredJson(`vm-tipset-bonus-${currentProfile.id}`, defaultBonusAnswers)
         : defaultBonusAnswers);
     setBonusAnswers(savedBonus);
+    setLoadedProfileId(currentProfile.id);
     setActiveTab(currentProfile.role === "admin" ? "Admin" : "Hem");
   }, [currentProfile]);
 
   useEffect(() => {
     if (!currentProfile || !isDatabaseLoaded) return;
+    if (loadedProfileId !== currentProfile.id) return;
     setAllPredictionsByProfile((current) => ({ ...current, [currentProfile.id]: predictions }));
     if (storageMode === "supabase") {
       savePredictionsToDb(currentProfile.id, predictions).catch((error) => logStorageError("Kunde inte spara tips.", error));
@@ -979,10 +981,11 @@ export default function Home() {
     }
     window.localStorage.setItem(`vm-tipset-predictions-${currentProfile.id}`, JSON.stringify(predictions));
     window.localStorage.setItem(`vm-tipset-predictions-version-${currentProfile.id}`, predictionsVersion);
-  }, [currentProfile, isDatabaseLoaded, predictions, storageMode]);
+  }, [currentProfile, isDatabaseLoaded, loadedProfileId, predictions, storageMode]);
 
   useEffect(() => {
     if (!currentProfile || !isDatabaseLoaded) return;
+    if (loadedProfileId !== currentProfile.id) return;
     setAllBonusByProfile((current) => ({ ...current, [currentProfile.id]: bonusAnswers }));
     if (storageMode === "supabase") {
       saveBonusToDb(currentProfile.id, bonusAnswers).catch((error) => logStorageError("Kunde inte spara bonus.", error));
@@ -990,7 +993,7 @@ export default function Home() {
     }
     window.localStorage.setItem(`vm-tipset-bonus-${currentProfile.id}`, JSON.stringify(bonusAnswers));
     window.localStorage.setItem(`vm-tipset-bonus-version-${currentProfile.id}`, bonusVersion);
-  }, [bonusAnswers, currentProfile, isDatabaseLoaded, storageMode]);
+  }, [bonusAnswers, currentProfile, isDatabaseLoaded, loadedProfileId, storageMode]);
 
   useEffect(() => {
     if (!isDatabaseLoaded) return;
@@ -1730,6 +1733,26 @@ function ProfileGate({
       Number(b.role === "admin") - Number(a.role === "admin") ||
       a.name.localeCompare(b.name, "sv"),
   );
+  const [isMobileAuthLayout, setIsMobileAuthLayout] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 639px)");
+    const updateLayout = () => setIsMobileAuthLayout(media.matches);
+    updateLayout();
+    media.addEventListener("change", updateLayout);
+    return () => media.removeEventListener("change", updateLayout);
+  }, []);
+
+  const authPrompt = authProfile ? (
+    <AuthPromptContent
+      authProfile={authProfile}
+      authPassword={authPassword}
+      authError={authError}
+      setAuthPassword={setAuthPassword}
+      unlockProfile={unlockProfile}
+      autoFocus={isMobileAuthLayout}
+    />
+  ) : null;
 
   return (
     <main className="relative grid min-h-screen place-items-center overflow-hidden px-4 py-10 text-white">
@@ -1769,45 +1792,9 @@ function ProfileGate({
             ))}
           </div>
 
-          {authProfile && (
-            <div className="mt-6 rounded-3xl border border-cyan/30 bg-cyan/10 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.3em] text-cyan">
-                    {authProfile.passwordHash ? "Ange lösenord" : "Skapa lösenord"}
-                  </p>
-                  <h2 className="font-display text-2xl font-black">{authProfile.name}</h2>
-                  <p className="mt-1 text-sm text-white/60">
-                    {authProfile.passwordHash
-                      ? "Skriv profilens lösenord för att öppna tipset."
-                      : "Admin har nollställt lösenordet eller profilen saknar lösenord. Sätt ett nytt nu."}
-                  </p>
-                </div>
-                <button onClick={closeAuth} className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-bold text-white/70">
-                  Avbryt
-                </button>
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
-                <input
-                  type="password"
-                  value={authPassword}
-                  onChange={(event) => setAuthPassword(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") unlockProfile();
-                  }}
-                  className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 outline-none focus:border-cyan"
-                  placeholder="Lösenord"
-                />
-                <button
-                  onClick={unlockProfile}
-                  className="rounded-2xl bg-cyan px-5 py-3 font-display font-black text-pitch transition hover:brightness-110"
-                >
-                  Öppna profil
-                </button>
-              </div>
-              {authError && <p className="mt-2 text-sm font-bold text-coral">{authError}</p>}
-            </div>
-          )}
+          {authPrompt && !isMobileAuthLayout ? (
+            <div className="mt-6 rounded-3xl border border-cyan/30 bg-cyan/10 p-4">{authPrompt}</div>
+          ) : null}
 
           <div className="mt-6 grid gap-3 rounded-3xl border border-white/10 bg-black/20 p-3 sm:grid-cols-[1fr_1fr_auto]">
             <input
@@ -1839,7 +1826,93 @@ function ProfileGate({
           </div>
         </div>
       </motion.section>
+      <AnimatePresence>
+        {authPrompt && isMobileAuthLayout ? (
+          <motion.div
+            className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-6 backdrop-blur-md"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <motion.section
+              initial={{ opacity: 0, scale: 0.92, y: 18 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              transition={{ type: "spring", stiffness: 320, damping: 26 }}
+              className="relative w-full max-w-md rounded-3xl border border-cyan/30 bg-pitch/95 p-4 shadow-2xl"
+            >
+              <button
+                onClick={closeAuth}
+                aria-label="Stäng lösenordsruta"
+                className="absolute right-3 top-3 grid h-10 w-10 place-items-center rounded-2xl bg-white/10 text-white/70 transition hover:bg-white/15 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+              {authPrompt}
+            </motion.section>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </main>
+  );
+}
+
+function AuthPromptContent({
+  authProfile,
+  authPassword,
+  authError,
+  setAuthPassword,
+  unlockProfile,
+  autoFocus,
+}: {
+  authProfile: PlayerProfile;
+  authPassword: string;
+  authError: string;
+  setAuthPassword: (value: string) => void;
+  unlockProfile: () => void;
+  autoFocus?: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, [authProfile.id, autoFocus]);
+
+  return (
+    <>
+      <div>
+        <p className="text-sm uppercase tracking-[0.3em] text-cyan">
+          {authProfile.passwordHash ? "Ange lösenord" : "Skapa lösenord"}
+        </p>
+        <h2 className="font-display text-2xl font-black">{authProfile.name}</h2>
+        <p className="mt-1 text-sm text-white/60">
+          {authProfile.passwordHash
+            ? "Skriv profilens lösenord för att öppna tipset."
+            : "Admin har nollställt lösenordet eller profilen saknar lösenord. Sätt ett nytt nu."}
+        </p>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+        <input
+          ref={inputRef}
+          type="password"
+          value={authPassword}
+          onChange={(event) => setAuthPassword(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") unlockProfile();
+          }}
+          className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 outline-none focus:border-cyan"
+          placeholder="Lösenord"
+        />
+        <button
+          onClick={unlockProfile}
+          className="rounded-2xl bg-cyan px-5 py-3 font-display font-black text-pitch transition hover:brightness-110"
+        >
+          Öppna profil
+        </button>
+      </div>
+      {authError && <p className="mt-2 text-sm font-bold text-coral">{authError}</p>}
+    </>
   );
 }
 
@@ -3836,33 +3909,57 @@ function StatsPanel({ leaderboardRows }: { leaderboardRows: UserScore[] }) {
   }
 
   const scoreChart = (rows: UserScore[], heightClass: string, animationKey = "default") => (
-    <div key={animationKey} className={heightClass}>
+    <div key={animationKey} className={classNames("relative overflow-visible", heightClass)}>
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={scoreHistoryData}>
+        <AreaChart data={scoreHistoryData} margin={{ top: 18, right: 22, bottom: 8, left: -10 }}>
           <CartesianGrid stroke="rgba(255,255,255,.08)" />
-          <XAxis dataKey="day" stroke="rgba(255,255,255,.55)" />
-          <YAxis stroke="rgba(255,255,255,.55)" />
+          <XAxis dataKey="day" stroke="rgba(255,255,255,.55)" tick={{ fontSize: 11 }} tickMargin={8} />
+          <YAxis
+            stroke="rgba(255,255,255,.55)"
+            tick={{ fontSize: 11 }}
+            width={42}
+            domain={[0, (dataMax: number) => Math.max(10, Math.ceil(dataMax * 1.08))]}
+          />
           <Tooltip contentStyle={{ background: "#06130f", border: "1px solid rgba(255,255,255,.12)" }} />
-          {rows.map((user) => {
-            const colorIndex = leaderboardRows.findIndex((row) => row.id === user.id);
-            return (
-              <Line
-                key={user.id}
-                type="monotone"
-                dataKey={user.name}
-                stroke={lineColors[Math.max(colorIndex, 0) % lineColors.length]}
-                strokeWidth={3}
-                dot={{ r: 3 }}
-                activeDot={{ r: 6 }}
-                isAnimationActive
-                animationBegin={120}
-                animationDuration={1200}
-                animationEasing="ease-out"
-              />
-            );
-          })}
-        </LineChart>
+        </AreaChart>
       </ResponsiveContainer>
+      <motion.div
+        className="absolute inset-0"
+        initial={{ clipPath: "inset(0 100% 0 0)" }}
+        animate={{ clipPath: "inset(0 0% 0 0)" }}
+        transition={{ duration: 1.35, ease: [0.22, 1, 0.36, 1] }}
+      >
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={scoreHistoryData} margin={{ top: 18, right: 22, bottom: 8, left: -10 }}>
+            <XAxis dataKey="day" stroke="transparent" tick={false} axisLine={false} tickLine={false} height={30} />
+            <YAxis
+              stroke="transparent"
+              tick={false}
+              axisLine={false}
+              tickLine={false}
+              width={42}
+              domain={[0, (dataMax: number) => Math.max(10, Math.ceil(dataMax * 1.08))]}
+            />
+            <Tooltip contentStyle={{ background: "#06130f", border: "1px solid rgba(255,255,255,.12)" }} />
+            {rows.map((user) => {
+              const colorIndex = leaderboardRows.findIndex((row) => row.id === user.id);
+              return (
+                <Area
+                  key={user.id}
+                  type="monotone"
+                  dataKey={user.name}
+                  stroke={lineColors[Math.max(colorIndex, 0) % lineColors.length]}
+                  fill="transparent"
+                  strokeWidth={3}
+                  dot={false}
+                  activeDot={{ r: 6, strokeWidth: 0 }}
+                  isAnimationActive={false}
+                />
+              );
+            })}
+          </AreaChart>
+        </ResponsiveContainer>
+      </motion.div>
     </div>
   );
 
