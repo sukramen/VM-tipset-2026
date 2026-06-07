@@ -40,12 +40,11 @@ export type PlayerProfile = {
 
 export type BonusPrediction = {
   worldChampion?: string;
-  finalistOne?: string;
-  finalistTwo?: string;
   topScorer?: string;
   mostGroupGoals?: string;
-  surpriseTeam?: string;
   totalTournamentGoals?: number;
+  firstHostEliminated?: string;
+  biggestWinMargin?: number;
 };
 
 export type UserScore = {
@@ -63,6 +62,7 @@ export type UserScore = {
 };
 
 export type Standing = {
+  teamId?: string;
   team: string;
   played: number;
   won: number;
@@ -72,4 +72,33 @@ export type Standing = {
   goalsAgainst: number;
   goalDifference: number;
   points: number;
+  fairPlayPoints?: number;
+};
+
+export type FairPlayPointsMode = "higher-is-better" | "lower-is-better";
+
+export type ThirdPlacedTeamInput = {
+  team_id: string;
+  team_name: string;
+  points: number;
+  goal_difference: number;
+  goals_for: number;
+  fair_play_points: number;
+};
+
+export type ThirdPlacedGroupInput = {
+  group: GroupLetter | string;
+  teams: ThirdPlacedTeamInput[];
+};
+
+export type RankedThirdPlacedTeam = ThirdPlacedTeamInput & {
+  group: GroupLetter | string;
+  rank: number;
+  qualified: boolean;
+};
+
+export type ThirdPlacedRanking = {
+  ranking: RankedThirdPlacedTeam[];
+  qualified: RankedThirdPlacedTeam[];
+  eliminated: RankedThirdPlacedTeam[];
 };

@@ -14,6 +14,42 @@ export const supabase = isSupabaseEnabled ? createClient(supabaseUrl!, supabaseA
 
 const toJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
+const retryablePostgresCodes = new Set(["40P01", "40001"]);
+const writeQueues = new Map<string, Promise<unknown>>();
+
+function getErrorCode(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : undefined;
+}
+
+async function withRetryOnWriteConflict<T>(operation: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      const code = getErrorCode(error);
+      if (!code || !retryablePostgresCodes.has(code) || attempt === attempts - 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 75 * (attempt + 1)));
+    }
+  }
+
+  throw lastError;
+}
+
+async function enqueueWrite<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = writeQueues.get(key)?.catch(() => undefined) ?? Promise.resolve();
+  const next = previous.then(operation);
+  writeQueues.set(key, next);
+
+  try {
+    return await next;
+  } finally {
+    if (writeQueues.get(key) === next) writeQueues.delete(key);
+  }
+}
+
 export function describeSupabaseError(error: unknown) {
   if (!error) return "Okänt fel";
   if (error instanceof Error) return `${error.name}: ${error.message}`;
@@ -79,8 +115,14 @@ export async function loadProfilesFromDb() {
 
 export async function saveProfilesToDb(profiles: PlayerProfile[]) {
   if (!supabase) return;
-  const { error } = await supabase.from("vm_profiles").upsert(profiles.map(toProfileRow), { onConflict: "id" });
-  if (error) throw error;
+  await enqueueWrite(
+    `profiles:${profiles.map((profile) => profile.id).sort().join(",")}`,
+    () =>
+      withRetryOnWriteConflict(async () => {
+        const { error } = await supabase.from("vm_profiles").upsert(profiles.map(toProfileRow), { onConflict: "id" });
+        if (error) throw error;
+      }),
+  );
 }
 
 export async function deleteProfileFromDb(profileId: string) {
@@ -130,8 +172,12 @@ export async function savePredictionsToDb(profileId: string, predictions: Predic
     away_score: prediction.score?.away ?? null,
     winner: prediction.winner ?? null,
   }));
-  const { error } = await supabase.from("vm_predictions").upsert(rows, { onConflict: "profile_id,match_id" });
-  if (error) throw error;
+  await enqueueWrite(`predictions:${profileId}`, () =>
+    withRetryOnWriteConflict(async () => {
+      const { error } = await supabase.from("vm_predictions").upsert(rows, { onConflict: "profile_id,match_id" });
+      if (error) throw error;
+    }),
+  );
 }
 
 export async function loadAllBonusFromDb() {
@@ -149,10 +195,14 @@ export async function loadAllBonusFromDb() {
 
 export async function saveBonusToDb(profileId: string, answers: BonusPrediction) {
   if (!supabase) return;
-  const { error } = await supabase
-    .from("vm_bonus_predictions")
-    .upsert({ profile_id: profileId, answers: toJson(answers) }, { onConflict: "profile_id" });
-  if (error) throw error;
+  await enqueueWrite(`bonus:${profileId}`, () =>
+    withRetryOnWriteConflict(async () => {
+      const { error } = await supabase
+        .from("vm_bonus_predictions")
+        .upsert({ profile_id: profileId, answers: toJson(answers) }, { onConflict: "profile_id" });
+      if (error) throw error;
+    }),
+  );
 }
 
 export async function loadResultsFromDb() {
@@ -177,11 +227,15 @@ export async function saveResultsToDb(results: Record<number, ScoreLine>, result
     away_score: score.away,
     winner: resultWinners[Number(matchId)] ?? null,
   }));
-  const { error: deleteError } = await supabase.from("vm_match_results").delete().neq("match_id", -1);
-  if (deleteError) throw deleteError;
-  if (rows.length === 0) return;
-  const { error } = await supabase.from("vm_match_results").insert(rows);
-  if (error) throw error;
+  await enqueueWrite("match-results", () =>
+    withRetryOnWriteConflict(async () => {
+      const { error: deleteError } = await supabase.from("vm_match_results").delete().neq("match_id", -1);
+      if (deleteError) throw deleteError;
+      if (rows.length === 0) return;
+      const { error } = await supabase.from("vm_match_results").insert(rows);
+      if (error) throw error;
+    }),
+  );
 }
 
 export async function loadAppStateFromDb<T>(key: string, fallback: T): Promise<T> {
@@ -193,6 +247,10 @@ export async function loadAppStateFromDb<T>(key: string, fallback: T): Promise<T
 
 export async function saveAppStateToDb<T>(key: string, value: T) {
   if (!supabase) return;
-  const { error } = await supabase.from("vm_app_state").upsert({ key, value: toJson(value) }, { onConflict: "key" });
-  if (error) throw error;
+  await enqueueWrite(`app-state:${key}`, () =>
+    withRetryOnWriteConflict(async () => {
+      const { error } = await supabase.from("vm_app_state").upsert({ key, value: toJson(value) }, { onConflict: "key" });
+      if (error) throw error;
+    }),
+  );
 }

@@ -1,14 +1,44 @@
 import { fixtures, groups } from "./world-cup-data";
-import type { BonusPrediction, GroupLetter, MatchStage, Prediction, ScoreLine, Standing } from "./types";
+import type {
+  BonusPrediction,
+  FairPlayPointsMode,
+  GroupLetter,
+  MatchStage,
+  Prediction,
+  RankedThirdPlacedTeam,
+  ScoreLine,
+  Standing,
+  ThirdPlacedGroupInput,
+  ThirdPlacedRanking,
+  ThirdPlacedTeamInput,
+} from "./types";
 
 const sign = (score: ScoreLine) => (score.home > score.away ? "1" : score.home < score.away ? "2" : "X");
 
-const normalize = (value?: string) => value?.trim().toLocaleLowerCase("sv") ?? "";
+const normalize = (value?: string) => {
+  const normalized = value?.trim().toLocaleLowerCase("sv") ?? "";
+  const aliases: Record<string, string> = {
+    canada: "kanada",
+    maxiko: "mexiko",
+    mexico: "mexiko",
+  };
+
+  return aliases[normalized] ?? normalized;
+};
+
+const getFairPlaySortValue = (points = 0, mode: FairPlayPointsMode = "higher-is-better") =>
+  mode === "lower-is-better" ? -points : points;
 
 const sameText = (prediction?: string, actual?: string) => {
   const predicted = normalize(prediction);
   const result = normalize(actual);
   return predicted.length > 0 && predicted === result;
+};
+
+const sameTextOption = (prediction?: string, actual?: string) => {
+  const predicted = normalize(prediction);
+  const accepted = actual?.split("/").map(normalize).filter(Boolean) ?? [];
+  return predicted.length > 0 && accepted.includes(predicted);
 };
 
 export const stageMultipliers: Record<MatchStage, number> = {
@@ -17,8 +47,8 @@ export const stageMultipliers: Record<MatchStage, number> = {
   Åttondelsfinal: 1.25,
   Kvartsfinal: 1.5,
   Semifinal: 2,
-  Bronsmatch: 2,
-  Final: 3,
+  Bronsmatch: 1.5,
+  Final: 2.5,
 };
 
 export function scoreGroupPrediction(prediction: Prediction, actual?: ScoreLine) {
@@ -70,12 +100,9 @@ export function scoreBonusPrediction(
   let points = 0;
 
   if (sameText(prediction.worldChampion, actual.worldChampion)) points += 15;
-  const actualFinalists = [normalize(actual.finalistOne), normalize(actual.finalistTwo)].filter(Boolean);
-  const predictedFinalists = [normalize(prediction.finalistOne), normalize(prediction.finalistTwo)].filter(Boolean);
-  points += predictedFinalists.filter((team, index) => actualFinalists.includes(team) && predictedFinalists.indexOf(team) === index).length * 8;
   if (sameText(prediction.topScorer, actual.topScorer)) points += 10;
-  if (sameText(prediction.mostGroupGoals, actual.mostGroupGoals)) points += 8;
-  if (sameText(prediction.surpriseTeam, actual.surpriseTeam)) points += 8;
+  if (sameTextOption(prediction.mostGroupGoals, actual.mostGroupGoals)) points += 8;
+  if (sameTextOption(prediction.firstHostEliminated, actual.firstHostEliminated)) points += 8;
   if (
     typeof prediction.totalTournamentGoals === "number" &&
     typeof actual.totalTournamentGoals === "number" &&
@@ -83,6 +110,13 @@ export function scoreBonusPrediction(
     Math.abs(prediction.totalTournamentGoals - actual.totalTournamentGoals) === closestTotalGoalDelta
   ) {
     points += 8;
+  }
+  if (
+    typeof prediction.biggestWinMargin === "number" &&
+    typeof actual.biggestWinMargin === "number" &&
+    prediction.biggestWinMargin === actual.biggestWinMargin
+  ) {
+    points += 5;
   }
 
   return points;
@@ -102,6 +136,7 @@ export function buildStandings(results: Record<number, ScoreLine>, group: GroupL
       goalsAgainst: 0,
       goalDifference: 0,
       points: 0,
+      fairPlayPoints: 0,
     });
   }
 
@@ -144,8 +179,54 @@ export function buildStandings(results: Record<number, ScoreLine>, group: GroupL
       b.points - a.points ||
       b.goalDifference - a.goalDifference ||
       b.goalsFor - a.goalsFor ||
+      getFairPlaySortValue(b.fairPlayPoints) - getFairPlaySortValue(a.fairPlayPoints) ||
       a.team.localeCompare(b.team, "sv"),
   );
+}
+
+function compareThirdPlacedTeams(
+  a: ThirdPlacedTeamInput,
+  b: ThirdPlacedTeamInput,
+  fairPlayPointsMode: FairPlayPointsMode = "higher-is-better",
+) {
+  return (
+    b.points - a.points ||
+    b.goal_difference - a.goal_difference ||
+    b.goals_for - a.goals_for ||
+    getFairPlaySortValue(b.fair_play_points, fairPlayPointsMode) - getFairPlaySortValue(a.fair_play_points, fairPlayPointsMode) ||
+    a.team_name.localeCompare(b.team_name, "sv") ||
+    a.team_id.localeCompare(b.team_id, "sv")
+  );
+}
+
+export function rankBestThirdPlacedTeams(
+  inputGroups: ThirdPlacedGroupInput[],
+  options: { qualifiedCount?: number; fairPlayPointsMode?: FairPlayPointsMode } = {},
+): ThirdPlacedRanking {
+  const qualifiedCount = options.qualifiedCount ?? 8;
+  const fairPlayPointsMode = options.fairPlayPointsMode ?? "higher-is-better";
+
+  const thirdPlacedTeams = inputGroups
+    .map((group) => {
+      const standing = [...group.teams].sort((a, b) => compareThirdPlacedTeams(a, b, fairPlayPointsMode))[2];
+      return standing ? { group: group.group, standing } : undefined;
+    })
+    .filter((item): item is { group: GroupLetter | string; standing: ThirdPlacedTeamInput } => Boolean(item));
+
+  const ranking = thirdPlacedTeams
+    .sort((a, b) => compareThirdPlacedTeams(a.standing, b.standing, fairPlayPointsMode) || String(a.group).localeCompare(String(b.group), "sv"))
+    .map<RankedThirdPlacedTeam>(({ group, standing }, index) => ({
+      ...standing,
+      group,
+      rank: index + 1,
+      qualified: index < qualifiedCount,
+    }));
+
+  return {
+    ranking,
+    qualified: ranking.filter((team) => team.qualified),
+    eliminated: ranking.filter((team) => !team.qualified),
+  };
 }
 
 export function rankThirdPlaced(results: Record<number, ScoreLine>) {
@@ -157,8 +238,10 @@ export function rankThirdPlaced(results: Record<number, ScoreLine>) {
         b.standing.points - a.standing.points ||
         b.standing.goalDifference - a.standing.goalDifference ||
         b.standing.goalsFor - a.standing.goalsFor ||
+        getFairPlaySortValue(b.standing.fairPlayPoints) - getFairPlaySortValue(a.standing.fairPlayPoints) ||
         a.group.localeCompare(b.group),
-    );
+    )
+    .map((item, index) => ({ ...item, qualified: index < 8 }));
 }
 
 export function comparePredictions(a: Prediction[], b: Prediction[]) {
