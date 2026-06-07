@@ -76,6 +76,13 @@ const defaultPredictions: Prediction[] = fixtures.map((match) => ({
 
 const defaultBonusAnswers: BonusPrediction = {};
 
+const thirdPlaceSlotOrder = ["CEFHI", "EFGIJ", "BEFIJ", "ABCDF", "AEHIJ", "CDFGH", "DEIJL", "EHIJK"] as const;
+const thirdPlaceAssignmentTable = new Map(
+  "EFGHIJKL:EJIFHGLK,DFGHIJKL:HGIDJFLK,DEGHIJKL:EJIDHGLK,DEFHIJKL:EJIDHFLK,DEFGIJKL:EGIDJFLK,DEFGHJKL:EGJDHFLK,DEFGHIKL:EGIDHFLK,DEFGHIJL:EGJDHFLI,DEFGHIJK:EGJDHFIK,CFGHIJKL:HGICJFLK,CEGHIJKL:EJICHGLK,CEFHIJKL:EJICHFLK,CEFGIJKL:EGICJFLK,CEFGHJKL:EGJCHFLK,CEFGHIKL:EGICHFLK,CEFGHIJL:EGJCHFLI,CEFGHIJK:EGJCHFIK,CDGHIJKL:HGICJDLK,CDFHIJKL:CJIDHFLK,CDFGIJKL:CGIDJFLK,CDFGHJKL:CGJDHFLK,CDFGHIKL:CGIDHFLK,CDFGHIJL:CGJDHFLI,CDFGHIJK:CGJDHFIK,CDEHIJKL:EJICHDLK,CDEGIJKL:EGICJDLK,CDEGHJKL:EGJCHDLK,CDEGHIKL:EGICHDLK,CDEGHIJL:EGJCHDLI,CDEGHIJK:EGJCHDIK,CDEFIJKL:CJEDIFLK,CDEFHJKL:CJEDHFLK,CDEFHIKL:CEIDHFLK,CDEFHIJL:CJEDHFLI,CDEFHIJK:CJEDHFIK,CDEFGJKL:CGEDJFLK,CDEFGIKL:CGEDIFLK,CDEFGIJL:CGEDJFLI,CDEFGIJK:CGEDJFIK,CDEFGHKL:CGEDHFLK,CDEFGHJL:CGJDHFLE,CDEFGHJK:CGJDHFEK,CDEFGHIL:CGEDHFLI,CDEFGHIK:CGEDHFIK,CDEFGHIJ:CGJDHFEI,BFGHIJKL:HJBFIGLK,BEGHIJKL:EJIBHGLK,BEFHIJKL:EJBFIHLK,BEFGIJKL:EJBFIGLK,BEFGHJKL:EJBFHGLK,BEFGHIKL:EGBFIHLK,BEFGHIJL:EJBFHGLI,BEFGHIJK:EJBFHGIK,BDGHIJKL:HJBDIGLK,BDFHIJKL:HJBDIFLK,BDFGIJKL:IGBDJFLK,BDFGHJKL:HGBDJFLK,BDFGHIKL:HGBDIFLK,BDFGHIJL:HGBDJFLI,BDFGHIJK:HGBDJFIK,BDEHIJKL:EJBDIHLK,BDEGIJKL:EJBDIGLK,BDEGHJKL:EJBDHGLK,BDEGHIKL:EGBDIHLK,BDEGHIJL:EJBDHGLI,BDEGHIJK:EJBDHGIK,BDEFIJKL:EJBDIFLK,BDEFHJKL:EJBDHFLK,BDEFHIKL:EIBDHFLK,BDEFHIJL:EJBDHFLI,BDEFHIJK:EJBDHFIK,BDEFGJKL:EGBDJFLK,BDEFGIKL:EGBDIFLK,BDEFGIJL:EGBDJFLI,BDEFGIJK:EGBDJFIK,BDEFGHKL:EGBDHFLK,BDEFGHJL:HGBDJFLE,BDEFGHJK:HGBDJFEK,BDEFGHIL:EGBDHFLI,BDEFGHIK:EGBDHFIK,BDEFGHIJ:HGBDJFEI,BCGHIJKL:HJBCIGLK,BCFHIJKL:HJBCIFLK,BCFGIJKL:IGBCJFLK,BCFGHJKL:HGBCJFLK,BCFGHIKL:HGBCIFLK,BCFGHIJL:HGBCJFLI,BCFGHIJK:HGBCJFIK,BCEHIJKL:EJBCIHLK,BCEGIJKL:EJBCIGLK,BCEGHJKL:EJBCHGLK,BCEGHIKL:EGBCIHLK,BCEGHIJL:EJBCHGLI,BCEGHIJK:EJBCHGIK,BCEFIJKL:EJBCIFLK,BCEFHJKL:EJBCHFLK,BCEFHIKL:EIBCHFLK,BCEFHIJL:EJBCHFLI,BCEFHIJK:EJBCHFIK,BCEFGJKL:EGBCJFLK,BCEFGIKL:EGBCIFLK,BCEFGIJL:EGBCJFLI,BCEFGIJK:EGBCJFIK,BCEFGHKL:EGBCHFLK,BCEFGHJL:HGBCJFLE,BCEFGHJK:HGBCJFEK,BCEFGHIL:EGBCHFLI,BCEFGHIK:EGBCHFIK,BCEFGHIJ:HGBCJFEI,BCDHIJKL:HJBCIDLK,BCDGIJKL:IGBCJDLK,BCDGHJKL:HGBCJDLK,BCDGHIKL:HGBCIDLK,BCDGHIJL:HGBCJDLI,BCDGHIJK:HGBCJDIK,BCDFIJKL:CJBDIFLK,BCDFHJKL:CJBDHFLK,BCDFHIKL:CIBDHFLK,BCDFHIJL:CJBDHFLI,BCDFHIJK:CJBDHFIK,BCDFGJKL:CGBDJFLK,BCDFGIKL:CGBDIFLK,BCDFGIJL:CGBDJFLI,BCDFGIJK:CGBDJFIK,BCDFGHKL:CGBDHFLK,BCDFGHJL:CGBDHFLJ,BCDFGHJK:HGBCJFDK,BCDFGHIL:CGBDHFLI,BCDFGHIK:CGBDHFIK,BCDFGHIJ:HGBCJFDI,BCDEIJKL:EJBCIDLK,BCDEHJKL:EJBCHDLK,BCDEHIKL:EIBCHDLK,BCDEHIJL:EJBCHDLI,BCDEHIJK:EJBCHDIK,BCDEGJKL:EGBCJDLK,BCDEGIKL:EGBCIDLK,BCDEGIJL:EGBCJDLI,BCDEGIJK:EGBCJDIK,BCDEGHKL:EGBCHDLK,BCDEGHJL:HGBCJDLE,BCDEGHJK:HGBCJDEK,BCDEGHIL:EGBCHDLI,BCDEGHIK:EGBCHDIK,BCDEGHIJ:HGBCJDEI,BCDEFJKL:CJBDEFLK,BCDEFIKL:CEBDIFLK,BCDEFIJL:CJBDEFLI,BCDEFIJK:CJBDEFIK,BCDEFHKL:CEBDHFLK,BCDEFHJL:CJBDHFLE,BCDEFHJK:CJBDHFEK,BCDEFHIL:CEBDHFLI,BCDEFHIK:CEBDHFIK,BCDEFHIJ:CJBDHFEI,BCDEFGKL:CGBDEFLK,BCDEFGJL:CGBDJFLE,BCDEFGJK:CGBDJFEK,BCDEFGIL:CGBDEFLI,BCDEFGIK:CGBDEFIK,BCDEFGIJ:CGBDJFEI,BCDEFGHL:CGBDHFLE,BCDEFGHK:CGBDHFEK,BCDEFGHJ:HGBCJFDE,BCDEFGHI:CGBDHFEI,AFGHIJKL:HJIFAGLK,AEGHIJKL:EJIAHGLK,AEFHIJKL:EJIFAHLK,AEFGIJKL:EJIFAGLK,AEFGHJKL:EGJFAHLK,AEFGHIKL:EGIFAHLK,AEFGHIJL:EGJFAHLI,AEFGHIJK:EGJFAHIK,ADGHIJKL:HJIDAGLK,ADFHIJKL:HJIDAFLK,ADFGIJKL:IGJDAFLK,ADFGHJKL:HGJDAFLK,ADFGHIKL:HGIDAFLK,ADFGHIJL:HGJDAFLI,ADFGHIJK:HGJDAFIK,ADEHIJKL:EJIDAHLK,ADEGIJKL:EJIDAGLK,ADEGHJKL:EGJDAHLK,ADEGHIKL:EGIDAHLK,ADEGHIJL:EGJDAHLI,ADEGHIJK:EGJDAHIK,ADEFIJKL:EJIDAFLK,ADEFHJKL:HJEDAFLK,ADEFHIKL:HEIDAFLK,ADEFHIJL:HJEDAFLI,ADEFHIJK:HJEDAFIK,ADEFGJKL:EGJDAFLK,ADEFGIKL:EGIDAFLK,ADEFGIJL:EGJDAFLI,ADEFGIJK:EGJDAFIK,ADEFGHKL:HGEDAFLK,ADEFGHJL:HGJDAFLE,ADEFGHJK:HGJDAFEK,ADEFGHIL:HGEDAFLI,ADEFGHIK:HGEDAFIK,ADEFGHIJ:HGJDAFEI,ACGHIJKL:HJICAGLK,ACFHIJKL:HJICAFLK,ACFGIJKL:IGJCAFLK,ACFGHJKL:HGJCAFLK,ACFGHIKL:HGICAFLK,ACFGHIJL:HGJCAFLI,ACFGHIJK:HGJCAFIK,ACEHIJKL:EJICAHLK,ACEGIJKL:EJICAGLK,ACEGHJKL:EGJCAHLK,ACEGHIKL:EGICAHLK,ACEGHIJL:EGJCAHLI,ACEGHIJK:EGJCAHIK,ACEFIJKL:EJICAFLK,ACEFHJKL:HJECAFLK,ACEFHIKL:HEICAFLK,ACEFHIJL:HJECAFLI,ACEFHIJK:HJECAFIK,ACEFGJKL:EGJCAFLK,ACEFGIKL:EGICAFLK,ACEFGIJL:EGJCAFLI,ACEFGIJK:EGJCAFIK,ACEFGHKL:HGECAFLK,ACEFGHJL:HGJCAFLE,ACEFGHJK:HGJCAFEK,ACEFGHIL:HGECAFLI,ACEFGHIK:HGECAFIK,ACEFGHIJ:HGJCAFEI,ACDHIJKL:HJICADLK,ACDGIJKL:IGJCADLK,ACDGHJKL:HGJCADLK,ACDGHIKL:HGICADLK,ACDGHIJL:HGJCADLI,ACDGHIJK:HGJCADIK,ACDFIJKL:CJIDAFLK,ACDFHJKL:HJFCADLK,ACDFHIKL:HFICADLK,ACDFHIJL:HJFCADLI,ACDFHIJK:HJFCADIK,ACDFGJKL:CGJDAFLK,ACDFGIKL:CGIDAFLK,ACDFGIJL:CGJDAFLI,ACDFGIJK:CGJDAFIK,ACDFGHKL:HGFCADLK,ACDFGHJL:CGJDAFLH,ACDFGHJK:HGJCAFDK,ACDFGHIL:HGFCADLI,ACDFGHIK:HGFCADIK,ACDFGHIJ:HGJCAFDI,ACDEIJKL:EJICADLK,ACDEHJKL:HJECADLK,ACDEHIKL:HEICADLK,ACDEHIJL:HJECADLI,ACDEHIJK:HJECADIK,ACDEGJKL:EGJCADLK,ACDEGIKL:EGICADLK,ACDEGIJL:EGJCADLI,ACDEGIJK:EGJCADIK,ACDEGHKL:HGECADLK,ACDEGHJL:HGJCADLE,ACDEGHJK:HGJCADEK,ACDEGHIL:HGECADLI,ACDEGHIK:HGECADIK,ACDEGHIJ:HGJCADEI,ACDEFJKL:CJEDAFLK,ACDEFIKL:CEIDAFLK,ACDEFIJL:CJEDAFLI,ACDEFIJK:CJEDAFIK,ACDEFHKL:HEFCADLK,ACDEFHJL:HJFCADLE,ACDEFHJK:HJECAFDK,ACDEFHIL:HEFCADLI,ACDEFHIK:HEFCADIK,ACDEFHIJ:HJECAFDI,ACDEFGKL:CGEDAFLK,ACDEFGJL:CGJDAFLE,ACDEFGJK:CGJDAFEK,ACDEFGIL:CGEDAFLI,ACDEFGIK:CGEDAFIK,ACDEFGIJ:CGJDAFEI,ACDEFGHL:HGFCADLE,ACDEFGHK:HGECAFDK,ACDEFGHJ:HGJCAFDE,ACDEFGHI:HGECAFDI,ABGHIJKL:HJBAIGLK,ABFHIJKL:HJBAIFLK,ABFGIJKL:IJBFAGLK,ABFGHJKL:HJBFAGLK,ABFGHIKL:HGBAIFLK,ABFGHIJL:HJBFAGLI,ABFGHIJK:HJBFAGIK,ABEHIJKL:EJBAIHLK,ABEGIJKL:EJBAIGLK,ABEGHJKL:EJBAHGLK,ABEGHIKL:EGBAIHLK,ABEGHIJL:EJBAHGLI,ABEGHIJK:EJBAHGIK,ABEFIJKL:EJBAIFLK,ABEFHJKL:EJBFAHLK,ABEFHIKL:EIBFAHLK,ABEFHIJL:EJBFAHLI,ABEFHIJK:EJBFAHIK,ABEFGJKL:EJBFAGLK,ABEFGIKL:EGBAIFLK,ABEFGIJL:EJBFAGLI,ABEFGIJK:EJBFAGIK,ABEFGHKL:EGBFAHLK,ABEFGHJL:HJBFAGLE,ABEFGHJK:HJBFAGEK,ABEFGHIL:EGBFAHLI,ABEFGHIK:EGBFAHIK,ABEFGHIJ:HJBFAGEI,ABDHIJKL:IJBDAHLK,ABDGIJKL:IJBDAGLK,ABDGHJKL:HJBDAGLK,ABDGHIKL:IGBDAHLK,ABDGHIJL:HJBDAGLI,ABDGHIJK:HJBDAGIK,ABDFIJKL:IJBDAFLK,ABDFHJKL:HJBDAFLK,ABDFHIKL:HIBDAFLK,ABDFHIJL:HJBDAFLI,ABDFHIJK:HJBDAFIK,ABDFGJKL:FJBDAGLK,ABDFGIKL:IGBDAFLK,ABDFGIJL:FJBDAGLI,ABDFGIJK:FJBDAGIK,ABDFGHKL:HGBDAFLK,ABDFGHJL:HGBDAFLJ,ABDFGHJK:HGBDAFJK,ABDFGHIL:HGBDAFLI,ABDFGHIK:HGBDAFIK,ABDFGHIJ:HGBDAFIJ,ABDEIJKL:EJBAIDLK,ABDEHJKL:EJBDAHLK,ABDEHIKL:EIBDAHLK,ABDEHIJL:EJBDAHLI,ABDEHIJK:EJBDAHIK,ABDEGJKL:EJBDAGLK,ABDEGIKL:EGBAIDLK,ABDEGIJL:EJBDAGLI,ABDEGIJK:EJBDAGIK,ABDEGHKL:EGBDAHLK,ABDEGHJL:HJBDAGLE,ABDEGHJK:HJBDAGEK,ABDEGHIL:EGBDAHLI,ABDEGHIK:EGBDAHIK,ABDEGHIJ:HJBDAGEI,ABDEFJKL:EJBDAFLK,ABDEFIKL:EIBDAFLK,ABDEFIJL:EJBDAFLI,ABDEFIJK:EJBDAFIK,ABDEFHKL:HEBDAFLK,ABDEFHJL:HJBDAFLE,ABDEFHJK:HJBDAFEK,ABDEFHIL:HEBDAFLI,ABDEFHIK:HEBDAFIK,ABDEFHIJ:HJBDAFEI,ABDEFGKL:EGBDAFLK,ABDEFGJL:EGBDAFLJ,ABDEFGJK:EGBDAFJK,ABDEFGIL:EGBDAFLI,ABDEFGIK:EGBDAFIK,ABDEFGIJ:EGBDAFIJ,ABDEFGHL:HGBDAFLE,ABDEFGHK:HGBDAFEK,ABDEFGHJ:HGBDAFEJ,ABDEFGHI:HGBDAFEI,ABCHIJKL:IJBCAHLK,ABCGIJKL:IJBCAGLK,ABCGHJKL:HJBCAGLK,ABCGHIKL:IGBCAHLK,ABCGHIJL:HJBCAGLI,ABCGHIJK:HJBCAGIK,ABCFIJKL:IJBCAFLK,ABCFHJKL:HJBCAFLK,ABCFHIKL:HIBCAFLK,ABCFHIJL:HJBCAFLI,ABCFHIJK:HJBCAFIK,ABCFGJKL:CJBFAGLK,ABCFGIKL:IGBCAFLK,ABCFGIJL:CJBFAGLI,ABCFGIJK:CJBFAGIK,ABCFGHKL:HGBCAFLK,ABCFGHJL:HGBCAFLJ,ABCFGHJK:HGBCAFJK,ABCFGHIL:HGBCAFLI,ABCFGHIK:HGBCAFIK,ABCFGHIJ:HGBCAFIJ,ABCEIJKL:EJBAICLK,ABCEHJKL:EJBCAHLK,ABCEHIKL:EIBCAHLK,ABCEHIJL:EJBCAHLI,ABCEHIJK:EJBCAHIK,ABCEGJKL:EJBCAGLK,ABCEGIKL:EGBAICLK,ABCEGIJL:EJBCAGLI,ABCEGIJK:EJBCAGIK,ABCEGHKL:EGBCAHLK,ABCEGHJL:HJBCAGLE,ABCEGHJK:HJBCAGEK,ABCEGHIL:EGBCAHLI,ABCEGHIK:EGBCAHIK,ABCEGHIJ:HJBCAGEI,ABCEFJKL:EJBCAFLK,ABCEFIKL:EIBCAFLK,ABCEFIJL:EJBCAFLI,ABCEFIJK:EJBCAFIK,ABCEFHKL:HEBCAFLK,ABCEFHJL:HJBCAFLE,ABCEFHJK:HJBCAFEK,ABCEFHIL:HEBCAFLI,ABCEFHIK:HEBCAFIK,ABCEFHIJ:HJBCAFEI,ABCEFGKL:EGBCAFLK,ABCEFGJL:EGBCAFLJ,ABCEFGJK:EGBCAFJK,ABCEFGIL:EGBCAFLI,ABCEFGIK:EGBCAFIK,ABCEFGIJ:EGBCAFIJ,ABCEFGHL:HGBCAFLE,ABCEFGHK:HGBCAFEK,ABCEFGHJ:HGBCAFEJ,ABCEFGHI:HGBCAFEI,ABCDIJKL:IJBCADLK,ABCDHJKL:HJBCADLK,ABCDHIKL:HIBCADLK,ABCDHIJL:HJBCADLI,ABCDHIJK:HJBCADIK,ABCDGJKL:CJBDAGLK,ABCDGIKL:IGBCADLK,ABCDGIJL:CJBDAGLI,ABCDGIJK:CJBDAGIK,ABCDGHKL:HGBCADLK,ABCDGHJL:HGBCADLJ,ABCDGHJK:HGBCADJK,ABCDGHIL:HGBCADLI,ABCDGHIK:HGBCADIK,ABCDGHIJ:HGBCADIJ,ABCDFJKL:CJBDAFLK,ABCDFIKL:CIBDAFLK,ABCDFIJL:CJBDAFLI,ABCDFIJK:CJBDAFIK,ABCDFHKL:HFBCADLK,ABCDFHJL:CJBDAFLH,ABCDFHJK:HJBCAFDK,ABCDFHIL:HFBCADLI,ABCDFHIK:HFBCADIK,ABCDFHIJ:HJBCAFDI,ABCDFGKL:CGBDAFLK,ABCDFGJL:CGBDAFLJ,ABCDFGJK:CGBDAFJK,ABCDFGIL:CGBDAFLI,ABCDFGIK:CGBDAFIK,ABCDFGIJ:CGBDAFIJ,ABCDFGHL:CGBDAFLH,ABCDFGHK:HGBCAFDK,ABCDFGHJ:HGBCAFDJ,ABCDFGHI:HGBCAFDI,ABCDEJKL:EJBCADLK,ABCDEIKL:EIBCADLK,ABCDEIJL:EJBCADLI,ABCDEIJK:EJBCADIK,ABCDEHKL:HEBCADLK,ABCDEHJL:HJBCADLE,ABCDEHJK:HJBCADEK,ABCDEHIL:HEBCADLI,ABCDEHIK:HEBCADIK,ABCDEHIJ:HJBCADEI,ABCDEGKL:EGBCADLK,ABCDEGJL:EGBCADLJ,ABCDEGJK:EGBCADJK,ABCDEGIL:EGBCADLI,ABCDEGIK:EGBCADIK,ABCDEGIJ:EGBCADIJ,ABCDEGHL:HGBCADLE,ABCDEGHK:HGBCADEK,ABCDEGHJ:HGBCADEJ,ABCDEGHI:HGBCADEI,ABCDEFKL:CEBDAFLK,ABCDEFJL:CJBDAFLE,ABCDEFJK:CJBDAFEK,ABCDEFIL:CEBDAFLI,ABCDEFIK:CEBDAFIK,ABCDEFIJ:CJBDAFEI,ABCDEFHL:HFBCADLE,ABCDEFHK:HEBCAFDK,ABCDEFHJ:HJBCAFDE,ABCDEFHI:HEBCAFDI,ABCDEFGL:CGBDAFLE,ABCDEFGK:CGBDAFEK,ABCDEFGJ:CGBDAFEJ,ABCDEFGI:CGBDAFEI,ABCDEFGH:HGBCAFDE"
+    .split(",")
+    .map((row) => row.split(":") as [string, string]),
+);
+
 const bonusFieldLabels: Array<{ key: keyof BonusPrediction; label: string; points: string; type?: "number"; placeholder?: string }> = [
   { key: "worldChampion", label: "Världsmästare", points: "15p" },
   { key: "topScorer", label: "Skytteligavinnare", points: "10p" },
@@ -247,6 +254,10 @@ function formatDate(date: string) {
   return new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" }).format(new Date(date));
 }
 
+function formatScoreLine(score?: ScoreLine) {
+  return score ? `${score.home}-${score.away}` : "-";
+}
+
 function nextFixture(now = new Date()) {
   return fixtures.find((fixture) => new Date(`${fixture.date}T${fixture.kickoffTime}:00`) > now) ?? fixtures[0];
 }
@@ -328,6 +339,25 @@ function getMatchDayPanel(previewDate?: string, now = new Date()) {
   return { label: "Nästa matchdag", date: next.date, matches: nextMatches };
 }
 
+type DailyScoreMatch = {
+  id: number;
+  stage: MatchStage;
+  kickoffTime: string;
+  home: string;
+  away: string;
+  predictedScore?: ScoreLine;
+  actualScore: ScoreLine;
+  points: number;
+};
+
+type DailyScoreDay = {
+  dateKey: string;
+  date: string;
+  points: number;
+  dayPoints: number;
+  matches: DailyScoreMatch[];
+};
+
 function buildDailyScoreData(
   predictions: Prediction[],
   results: Record<number, ScoreLine>,
@@ -336,34 +366,67 @@ function buildDailyScoreData(
   lockedMatchIds: number[] = [],
 ) {
   const predictionMap = new Map(predictions.map((prediction) => [prediction.matchId, prediction]));
+  const resolvedKnockoutById = new Map(
+    buildResolvedKnockoutFixtures({
+      sourceResults: results,
+      lockedDates,
+      lockedMatchIds,
+      resolveGroupTeams: stageIsLocked("Gruppspel", lockedDates, lockedMatchIds),
+      useSourceResultsForAdvancement: true,
+      advancementWinners: resultWinners,
+    }).map((match) => [match.id, match]),
+  );
   let total = 0;
 
   const rows = fixtures
     .filter((fixture) => isFixtureLocked(fixture, lockedDates, lockedMatchIds) && results[fixture.id])
     .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id)
-    .reduce<Array<{ date: string; points: number; dayPoints: number }>>((days, fixture) => {
+    .reduce<DailyScoreDay[]>((days, fixture) => {
       const prediction = predictionMap.get(fixture.id);
-      const dayPoints = scorePrediction(
-        prediction ?? { matchId: fixture.id },
-        results[fixture.id],
-        fixture.stage,
-        resultWinners[fixture.id],
-      );
+      const resolvedFixture = fixture.stage === "Gruppspel" ? undefined : resolvedKnockoutById.get(fixture.id);
+      const displayHome = resolvedFixture?.resolvedHome ?? fixture.home;
+      const displayAway = resolvedFixture?.resolvedAway ?? fixture.away;
+      const actualWinner =
+        fixture.stage === "Gruppspel"
+          ? undefined
+          : resolvedFixture
+            ? matchWinner(resolvedFixture.resolvedHome, resolvedFixture.resolvedAway, results[fixture.id], resultWinners[fixture.id])
+            : resultWinners[fixture.id] ?? matchWinner(fixture.home, fixture.away, results[fixture.id]);
+      const predictionForScore =
+        fixture.stage === "Gruppspel" || !resolvedFixture || !prediction?.score
+          ? prediction
+          : {
+              ...prediction,
+              winner: matchWinner(resolvedFixture.resolvedHome, resolvedFixture.resolvedAway, prediction.score, prediction.winner) ?? prediction.winner,
+            };
+      const dayPoints = scorePrediction(predictionForScore ?? { matchId: fixture.id }, results[fixture.id], fixture.stage, actualWinner);
       total += dayPoints;
 
+      const dateKey = fixture.date;
       const label = formatDate(fixture.date);
-      const existingDay = days.find((day) => day.date === label);
+      const existingDay = days.find((day) => day.dateKey === dateKey);
+      const scoredMatch = {
+        id: fixture.id,
+        stage: fixture.stage,
+        kickoffTime: fixture.kickoffTime,
+        home: displayHome,
+        away: displayAway,
+        predictedScore: prediction?.score,
+        actualScore: results[fixture.id],
+        points: dayPoints,
+      };
       if (existingDay) {
         existingDay.dayPoints += dayPoints;
         existingDay.points = total;
+        existingDay.matches.push(scoredMatch);
         return days;
       }
 
-      days.push({ date: label, points: total, dayPoints });
+      days.push({ dateKey, date: label, points: total, dayPoints, matches: [scoredMatch] });
       return days;
     }, []);
 
-  return rows.length > 0 ? rows : [{ date: "Start", points: 0, dayPoints: 0 }];
+  return rows.length > 0 ? rows : [{ dateKey: "start", date: "Start", points: 0, dayPoints: 0, matches: [] }];
 }
 
 function scorePredictions(
@@ -536,6 +599,36 @@ function getOpenKnockoutStages(lockedDates: string[], lockedMatchIds: number[] =
   return (["Bronsmatch", "Final"] as MatchStage[]).filter((stage) => !stageIsLocked(stage, lockedDates, lockedMatchIds));
 }
 
+function stageHasCompleteResults(stage: MatchStage, results: Record<number, ScoreLine>, resultWinners: Record<number, string> = {}) {
+  return fixtures
+    .filter((match) => match.stage === stage)
+    .every((match) => {
+      const result = results[match.id];
+      if (!result) return false;
+      if (stage === "Gruppspel") return true;
+      return result.home !== result.away || Boolean(resultWinners[match.id]);
+    });
+}
+
+function getOpenActualKnockoutStages(
+  results: Record<number, ScoreLine>,
+  resultWinners: Record<number, string>,
+  lockedDates: string[],
+  lockedMatchIds: number[] = [],
+): MatchStage[] {
+  if (!stageHasCompleteResults("Gruppspel", results, resultWinners)) return [];
+  if (!stageIsLocked("Sextondelsfinal", lockedDates, lockedMatchIds)) return ["Sextondelsfinal"];
+  if (!stageHasCompleteResults("Sextondelsfinal", results, resultWinners)) return [];
+  if (!stageIsLocked("Åttondelsfinal", lockedDates, lockedMatchIds)) return ["Åttondelsfinal"];
+  if (!stageHasCompleteResults("Åttondelsfinal", results, resultWinners)) return [];
+  if (!stageIsLocked("Kvartsfinal", lockedDates, lockedMatchIds)) return ["Kvartsfinal"];
+  if (!stageHasCompleteResults("Kvartsfinal", results, resultWinners)) return [];
+  if (!stageIsLocked("Semifinal", lockedDates, lockedMatchIds)) return ["Semifinal"];
+  if (!stageHasCompleteResults("Semifinal", results, resultWinners)) return [];
+
+  return (["Bronsmatch", "Final"] as MatchStage[]).filter((stage) => !stageIsLocked(stage, lockedDates, lockedMatchIds));
+}
+
 function getPhaseStatus(lockedDates: string[], lockedMatchIds: number[] = []) {
   if (!stageIsLocked("Gruppspel", lockedDates, lockedMatchIds)) {
     return {
@@ -575,7 +668,20 @@ function resolveKnockoutTeam(
 
   const bestThird = slot.match(/^Bästa trea ([A-L]+)$/);
   if (bestThird) {
-    const allowedGroups = bestThird[1].split("") as GroupLetter[];
+    const slotKey = bestThird[1];
+    const qualifiedThirdGroups = thirdRank
+      .slice(0, 8)
+      .map((item) => item.group)
+      .sort()
+      .join("");
+    const assignment = thirdPlaceAssignmentTable.get(qualifiedThirdGroups);
+    const assignedGroup = assignment?.[thirdPlaceSlotOrder.indexOf(slotKey as (typeof thirdPlaceSlotOrder)[number])] as
+      | GroupLetter
+      | undefined;
+    const assignedThird = assignedGroup ? thirdRank.find((item) => item.group === assignedGroup) : undefined;
+    if (assignedThird) return assignedThird.standing.team;
+
+    const allowedGroups = slotKey.split("") as GroupLetter[];
     const third = thirdRank.find((item) => allowedGroups.includes(item.group) && !usedThirdGroups?.has(item.group));
     if (!third) return slot;
     usedThirdGroups?.add(third.group);
@@ -706,10 +812,13 @@ function randomScore(): ScoreLine {
   return { home: Math.floor(Math.random() * 5), away: Math.floor(Math.random() * 5) };
 }
 
-function randomPredictionsForFixtures() {
+function randomPredictionsForFixtures(
+  knockoutSourceResults: Record<number, ScoreLine> = {},
+  knockoutResultWinners: Record<number, string> = {},
+) {
   const predictionsByMatchId = new Map<number, Prediction>();
-  const sourceResults: Record<number, ScoreLine> = {};
-  const advancementWinners: Record<number, string> = {};
+  const sourceResults: Record<number, ScoreLine> = { ...knockoutSourceResults };
+  const hasKnockoutSourceResults = Object.keys(knockoutSourceResults).length > 0;
   const allLockedDates = Array.from(new Set(fixtures.map((match) => match.date)));
 
   fixtures
@@ -717,17 +826,18 @@ function randomPredictionsForFixtures() {
     .forEach((match) => {
       const score = randomScore();
       const winner = score.home > score.away ? match.home : score.home < score.away ? match.away : "Oavgjort";
-      sourceResults[match.id] = score;
+      if (!hasKnockoutSourceResults) sourceResults[match.id] = score;
       predictionsByMatchId.set(match.id, { matchId: match.id, score, winner });
     });
 
   for (const stage of stageOrder) {
     const resolvedKnockout = buildResolvedKnockoutFixtures({
       sourceResults,
+      predictions: [...predictionsByMatchId.values()],
       lockedDates: allLockedDates,
       resolveGroupTeams: true,
-      useSourceResultsForAdvancement: true,
-      advancementWinners,
+      useSourceResultsForAdvancement: hasKnockoutSourceResults,
+      advancementWinners: knockoutResultWinners,
     });
 
     resolvedKnockout
@@ -745,8 +855,6 @@ function randomPredictionsForFixtures() {
                 ? home
                 : away;
 
-        sourceResults[match.id] = score;
-        advancementWinners[match.id] = winner;
         predictionsByMatchId.set(match.id, { matchId: match.id, score, winner });
       });
   }
@@ -1085,20 +1193,18 @@ export default function Home() {
   }, [isDatabaseLoaded]);
 
   const predictionScore = useMemo(
-    () => {
-      const fixtureById = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
-
-      return predictions.reduce((sum, prediction) => {
-        const fixture = fixtureById.get(prediction.matchId);
-        if (!fixture || !isFixtureLocked(fixture, lockedDates, lockedMatchIds)) return sum;
-        const actualWinner =
-          fixture.stage === "Gruppspel"
-            ? undefined
-            : resultWinners[prediction.matchId] ?? matchWinner(fixture.home, fixture.away, results[prediction.matchId]);
-        return sum + scorePrediction(prediction, results[prediction.matchId], fixture.stage, actualWinner);
-      }, 0);
-    },
-    [lockedDates, lockedMatchIds, predictions, resultWinners, results],
+    () =>
+      scorePredictions(
+        predictions,
+        results,
+        lockedDates,
+        resultWinners,
+        bonusAnswers,
+        officialBonusAnswers,
+        undefined,
+        lockedMatchIds,
+      ).points,
+    [bonusAnswers, lockedDates, lockedMatchIds, officialBonusAnswers, predictions, resultWinners, results],
   );
 
   const dashboardNow = useMemo(() => new Date(clockTick), [clockTick]);
@@ -1117,7 +1223,6 @@ export default function Home() {
   const thirdPlaced = rankThirdPlaced(results).slice(0, 8);
   const visibleTabs = currentProfile?.role === "admin" ? tabs : tabs.filter((tab) => tab !== "Admin");
   const phaseStatus = useMemo(() => getPhaseStatus(lockedDates, lockedMatchIds), [lockedDates, lockedMatchIds]);
-  const openKnockoutStages = useMemo(() => getOpenKnockoutStages(lockedDates, lockedMatchIds), [lockedDates, lockedMatchIds]);
   const dailyScoreData = useMemo(
     () => buildDailyScoreData(predictions, results, lockedDates, resultWinners, lockedMatchIds),
     [lockedDates, lockedMatchIds, predictions, resultWinners, results],
@@ -1266,7 +1371,7 @@ export default function Home() {
 
     const playerProfiles = profiles.filter((profile) => profile.role === "player");
     const randomPredictionsByProfile = Object.fromEntries(
-      playerProfiles.map((profile) => [profile.id, randomPredictionsForFixtures()]),
+      playerProfiles.map((profile) => [profile.id, randomPredictionsForFixtures(randomResults, randomResultWinners)]),
     );
 
     playerProfiles.forEach((profile) => {
@@ -1615,7 +1720,7 @@ export default function Home() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -18 }}
           transition={{ duration: 0.28 }}
-          className="mx-auto w-full max-w-7xl min-w-0"
+          className="mx-auto w-full max-w-7xl min-w-0 overflow-hidden"
         >
           {activeTab === "Hem" && (
             <Dashboard
@@ -1625,15 +1730,16 @@ export default function Home() {
               matchDayPanel={matchDayPanel}
               phaseStatus={phaseStatus}
               tournamentCountdown={tournamentCountdown}
+              onOpenStats={() => setActiveTab("Statistik")}
             />
           )}
           {activeTab === "Tippa" && (
             <PredictionsPanel
               predictions={predictions}
+              actualResults={results}
+              actualResultWinners={resultWinners}
               lockedDates={lockedDates}
               lockedMatchIds={lockedMatchIds}
-              openKnockoutStages={openKnockoutStages}
-              phaseStatus={phaseStatus}
               bonusAnswers={bonusAnswers}
               bonusLocked={bonusLocked}
               onChange={updatePrediction}
@@ -1689,7 +1795,7 @@ export default function Home() {
               updateOfficialBonusAnswer={updateOfficialBonusAnswer}
             />
           )}
-          {activeTab === "Statistik" && <StatsPanel leaderboardRows={liveLeaderboard} />}
+          {activeTab === "Statistik" && <StatsPanel leaderboardRows={liveLeaderboard} dailyScoreData={dailyScoreData} />}
         </motion.section>
       </AnimatePresence>
       <AnimatePresence>
@@ -1923,13 +2029,15 @@ function Dashboard({
   matchDayPanel,
   phaseStatus,
   tournamentCountdown,
+  onOpenStats,
 }: {
   next: Fixture;
   topThree: UserScore[];
-  dailyScoreData: Array<{ date: string; points: number; dayPoints: number }>;
+  dailyScoreData: DailyScoreDay[];
   matchDayPanel: { label: string; date: string; matches: Fixture[] };
   phaseStatus: ReturnType<typeof getPhaseStatus>;
   tournamentCountdown: ReturnType<typeof getTournamentCountdown>;
+  onOpenStats: () => void;
 }) {
   return (
     <div className="grid w-full min-w-0 max-w-full gap-5">
@@ -1980,6 +2088,8 @@ function Dashboard({
           <PointsAreaChart data={dailyScoreData} heightClass="h-44" />
         </section>
 
+        <DailyPointsCard dailyScoreData={dailyScoreData} onOpenStats={onOpenStats} />
+
         <Metric
           icon={<CalendarClock />}
           label="Nästa match"
@@ -2013,7 +2123,7 @@ function Dashboard({
         </div>
       </div>
 
-      <div className="hidden w-full min-w-0 max-w-full items-start gap-4 lg:grid lg:grid-cols-[minmax(0,1.25fr)_minmax(0,.75fr)] lg:gap-5">
+      <div className="hidden w-full min-w-0 max-w-full items-start gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.58fr)] lg:gap-5">
         <section className="glass relative w-full min-w-0 max-w-full rounded-[1.5rem] p-4 ring-1 ring-volt/25 sm:rounded-[2rem] sm:p-6">
             <p className="text-xs uppercase tracking-[0.3em] text-cyan sm:text-sm sm:tracking-[0.35em]">Live leaderboard</p>
             <div className="mt-4 grid w-full min-w-0 max-w-full grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3 lg:gap-3">
@@ -2057,8 +2167,9 @@ function Dashboard({
         </section>
 
 
-        <aside className="grid w-full min-w-0 content-start gap-5">
+        <aside className="grid w-full min-w-0 max-w-full content-start gap-5 overflow-hidden">
         <TournamentStatusPanel phaseStatus={phaseStatus} tournamentCountdown={tournamentCountdown} />
+        <DailyPointsCard dailyScoreData={dailyScoreData} onOpenStats={onOpenStats} />
         <Metric
           icon={<CalendarClock />}
           label="Nästa match"
@@ -2098,6 +2209,123 @@ function Dashboard({
   );
 }
 
+function DailyPointsSummary({ dailyScoreData }: { dailyScoreData: DailyScoreDay[] }) {
+  const scoredDays = dailyScoreData.filter((day) => day.matches.length > 0);
+  const todayKey = getSwedishDateKey();
+  const preferredDay = scoredDays.find((day) => day.dateKey === todayKey) ?? scoredDays[scoredDays.length - 1];
+  const [selectedDate, setSelectedDate] = useState(preferredDay?.dateKey ?? "");
+  const selectedDay = scoredDays.find((day) => day.dateKey === selectedDate) ?? preferredDay;
+
+  useEffect(() => {
+    if (!preferredDay) return;
+    if (!scoredDays.some((day) => day.dateKey === selectedDate)) {
+      setSelectedDate(preferredDay.dateKey);
+    }
+  }, [preferredDay, scoredDays, selectedDate]);
+
+  if (!selectedDay) {
+    return (
+      <section className="glass w-full min-w-0 max-w-full overflow-hidden rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
+        <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Dagens poäng</p>
+        <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">Ingen avräkning än</h2>
+        <p className="mt-2 text-sm leading-relaxed text-white/55">När matcher är låsta och resultat finns visas poängen här.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="glass w-full min-w-0 max-w-full overflow-hidden rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Dagens poäng</p>
+          <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">{selectedDay.date}</h2>
+        </div>
+        <div className="shrink-0 rounded-2xl bg-volt/10 px-4 py-2 text-right">
+          <p className="font-display text-2xl font-black text-volt">{selectedDay.dayPoints}</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">poäng</p>
+        </div>
+      </div>
+
+      {scoredDays.length > 1 && (
+        <label className="mt-4 block">
+          <span className="sr-only">Välj matchdag</span>
+          <select
+            value={selectedDay.dateKey}
+            onChange={(event) => setSelectedDate(event.target.value)}
+            className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-volt"
+          >
+            {scoredDays.map((day) => (
+              <option key={day.dateKey} value={day.dateKey} className="bg-pitch text-white">
+                {day.date} · {day.dayPoints}p
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      <div className="mt-4 space-y-2">
+        {selectedDay.matches.map((match) => (
+          <div key={match.id} className="min-w-0 rounded-2xl border border-white/10 bg-white/5 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">
+                {match.kickoffTime} · {match.stage}
+              </p>
+              <p className="shrink-0 rounded-full bg-white/10 px-2.5 py-1 text-xs font-black text-volt">+{match.points}p</p>
+            </div>
+            <div className="mt-2 grid min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-2 text-sm font-bold">
+              <span className="min-w-0 truncate"><TeamLabel team={match.home} /></span>
+              <span className="text-white/35">-</span>
+              <span className="min-w-0 truncate text-right"><TeamLabel team={match.away} /></span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-white/55">
+              <span className="rounded-full bg-white/5 px-2.5 py-1">Tips: {formatScoreLine(match.predictedScore)}</span>
+              <span className="rounded-full bg-white/5 px-2.5 py-1">Resultat: {formatScoreLine(match.actualScore)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DailyPointsCard({ dailyScoreData, onOpenStats }: { dailyScoreData: DailyScoreDay[]; onOpenStats: () => void }) {
+  const todayKey = getSwedishDateKey();
+  const todayMatches = getMatchesByDate(todayKey);
+  const todayDay = dailyScoreData.find((day) => day.dateKey === todayKey && day.matches.length > 0);
+  const hasMatchesToday = todayMatches.length > 0;
+  const todayLabel = formatDate(todayKey);
+
+  return (
+    <section className="glass w-full min-w-0 max-w-full overflow-hidden rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Dagens poäng</p>
+          <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">
+            {todayDay ? `${todayDay.dayPoints} poäng` : "0 poäng idag"}
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-white/55">
+            {hasMatchesToday
+              ? `${todayLabel} · ${todayDay?.matches.length ?? 0}/${todayMatches.length} matcher avräknade.`
+              : `${todayLabel} · inga matcher idag.`}
+          </p>
+        </div>
+        <div className="shrink-0 rounded-2xl bg-volt/10 px-4 py-2 text-right">
+          <p className="font-display text-2xl font-black text-volt">+{todayDay?.dayPoints ?? 0}</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">idag</p>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={onOpenStats}
+        className="mt-4 w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-bold text-white/75 transition hover:bg-volt hover:text-pitch"
+      >
+        Visa detaljer i Statistik
+      </button>
+    </section>
+  );
+}
+
 function TournamentStatusPanel({
   phaseStatus,
   tournamentCountdown,
@@ -2117,17 +2345,17 @@ function TournamentStatusPanel({
   }
 
   return (
-    <div className="glass hidden rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5 lg:block">
+    <div className="glass hidden w-full min-w-0 max-w-full overflow-hidden rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5 lg:block">
       <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Nedräkning</p>
       <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">VM börjar snart</h2>
       <p className="mt-2 text-sm leading-relaxed text-white/60">
         Första matchen startar {formatDate(fixtures[0].date)} {fixtures[0].kickoffTime}.
       </p>
-      <div className="mt-4 grid grid-cols-4 gap-2">
+      <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
         {tournamentCountdown.parts.map((part) => (
-          <div key={part.label} className="rounded-2xl bg-volt/10 px-2 py-3 text-center">
+          <div key={part.label} className="min-w-0 rounded-2xl bg-volt/10 px-2 py-3 text-center">
             <p className="font-display text-xl font-black text-volt">{String(part.value).padStart(2, "0")}</p>
-            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">{part.label}</p>
+            <p className="mt-1 truncate text-[10px] font-bold uppercase tracking-[0.12em] text-white/45">{part.label}</p>
           </div>
         ))}
       </div>
@@ -2147,7 +2375,7 @@ function Metric({ icon, label, value }: { icon: ReactNode; label: string; value:
   );
 }
 
-function PointsAreaChart({ data, heightClass }: { data: Array<{ date: string; points: number; dayPoints: number }>; heightClass: string }) {
+function PointsAreaChart({ data, heightClass }: { data: DailyScoreDay[]; heightClass: string }) {
   return (
     <div className={classNames("mt-4 w-full min-w-0 max-w-full overflow-hidden", heightClass)}>
       <ResponsiveContainer width="100%" height="100%">
@@ -2423,10 +2651,10 @@ function RulesPanel() {
 
 function PredictionsPanel({
   predictions,
+  actualResults,
+  actualResultWinners,
   lockedDates,
   lockedMatchIds,
-  openKnockoutStages,
-  phaseStatus,
   bonusAnswers,
   bonusLocked,
   onChange,
@@ -2435,10 +2663,10 @@ function PredictionsPanel({
   onResetPredictions,
 }: {
   predictions: Prediction[];
+  actualResults: Record<number, ScoreLine>;
+  actualResultWinners: Record<number, string>;
   lockedDates: string[];
   lockedMatchIds: number[];
-  openKnockoutStages: MatchStage[];
-  phaseStatus: ReturnType<typeof getPhaseStatus>;
   bonusAnswers: BonusPrediction;
   bonusLocked: boolean;
   onChange: (match: Fixture, side: "home" | "away", value: number) => void;
@@ -2456,9 +2684,9 @@ function PredictionsPanel({
       }, {}),
     [predictions],
   );
-  const allGroupDatesLocked = fixtures
-    .filter((match) => match.stage === "Gruppspel")
-    .every((match) => isFixtureLocked(match, lockedDates, lockedMatchIds));
+  const groupStageMatches = fixtures.filter((match) => match.stage === "Gruppspel");
+  const allGroupResultsAvailable = groupStageMatches.every((match) => actualResults[match.id]);
+  const actualOpenKnockoutStages = getOpenActualKnockoutStages(actualResults, actualResultWinners, lockedDates, lockedMatchIds);
 
   if (tipMode === "menu") {
     return (
@@ -2490,7 +2718,7 @@ function PredictionsPanel({
 
           <button
             onClick={() => setTipMode("knockout")}
-            disabled={!stageIsLocked("Gruppspel", lockedDates, lockedMatchIds)}
+            disabled={!allGroupResultsAvailable}
             className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-left transition hover:-translate-y-1 hover:border-flare/50 hover:bg-flare/10 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0 sm:rounded-[2rem] sm:p-6"
           >
             <div className="grid h-14 w-14 place-items-center rounded-2xl bg-flare/15 text-flare">
@@ -2499,9 +2727,9 @@ function PredictionsPanel({
             <p className="mt-6 text-sm uppercase tracking-[0.28em] text-flare">Slutspel</p>
             <h3 className="mt-2 font-display text-3xl font-black">Slutspelsträd</h3>
             <p className="mt-3 text-white/60">
-              {stageIsLocked("Gruppspel", lockedDates, lockedMatchIds)
-                ? `Öppen fas: ${phaseStatus.openLabel}.`
-                : "Låses upp när gruppspelet är färdigspelat och låst."}
+              {allGroupResultsAvailable
+                ? `Öppen fas: ${actualOpenKnockoutStages.length > 0 ? actualOpenKnockoutStages.join(" & ") : "ingen"}.`
+                : "Låses upp när alla faktiska gruppresultat finns."}
             </p>
           </button>
         </div>
@@ -2516,9 +2744,10 @@ function PredictionsPanel({
           predictions={predictions}
           lockedDates={lockedDates}
           lockedMatchIds={lockedMatchIds}
-          sourceResults={predictedResults}
-          resolveTeams={allGroupDatesLocked}
-          openKnockoutStages={openKnockoutStages}
+          sourceResults={actualResults}
+          resultWinners={actualResultWinners}
+          resolveTeams={allGroupResultsAvailable}
+          openKnockoutStages={actualOpenKnockoutStages}
           onBack={() => setTipMode("menu")}
           onChange={onChange}
           onWinnerChange={onWinnerChange}
@@ -2844,6 +3073,7 @@ function KnockoutPredictionPanel({
   lockedDates,
   lockedMatchIds,
   sourceResults,
+  resultWinners,
   resolveTeams,
   openKnockoutStages,
   onBack,
@@ -2854,6 +3084,7 @@ function KnockoutPredictionPanel({
   lockedDates: string[];
   lockedMatchIds: number[];
   sourceResults: Record<number, ScoreLine>;
+  resultWinners: Record<number, string>;
   resolveTeams: boolean;
   openKnockoutStages: MatchStage[];
   onBack: () => void;
@@ -2867,6 +3098,8 @@ function KnockoutPredictionPanel({
     lockedDates,
     lockedMatchIds,
     resolveGroupTeams: resolveTeams,
+    useSourceResultsForAdvancement: true,
+    advancementWinners: resultWinners,
   });
   const completedCount = knockout.filter((match) => predictionMap.get(match.id)?.score).length;
 
@@ -3870,7 +4103,7 @@ function PredictionReadOnlySection({
   );
 }
 
-function StatsPanel({ leaderboardRows }: { leaderboardRows: UserScore[] }) {
+function StatsPanel({ leaderboardRows, dailyScoreData }: { leaderboardRows: UserScore[]; dailyScoreData: DailyScoreDay[] }) {
   const [expandedChart, setExpandedChart] = useState(false);
   const [chartAnimationKey, setChartAnimationKey] = useState(0);
   const [visiblePlayerIds, setVisiblePlayerIds] = useState<string[]>(() => leaderboardRows.map((user) => user.id));
@@ -3965,6 +4198,9 @@ function StatsPanel({ leaderboardRows }: { leaderboardRows: UserScore[] }) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2 lg:gap-4">
+      <div className="lg:col-span-2">
+        <DailyPointsSummary dailyScoreData={dailyScoreData} />
+      </div>
       <section className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-4 lg:col-span-2">
         <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex items-center gap-3">
