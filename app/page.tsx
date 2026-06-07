@@ -2517,7 +2517,7 @@ function RulesPanel() {
     ["Rätt lag vidare", "5 poäng"],
     ["Rätt fulltidstecken", "3 poäng"],
     ["Exakt fulltidresultat", "+3 poäng"],
-    ["Multiplikatorer", ["16-del x1", "8-del x1.25", "kvart x1.5", "semi x2", "brons x1.5", "final x2.5"]],
+    ["Multiplikatorer", ["16-del x1", "8-del x1.25", "kvart x1.5", "semi x2", "brons x1.5", "final x2"]],
   ];
   const bonusRules: Array<[string, string | string[]]> = [
     ["Världsmästare", "15 poäng"],

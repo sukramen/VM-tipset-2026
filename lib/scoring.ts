@@ -48,7 +48,7 @@ export const stageMultipliers: Record<MatchStage, number> = {
   Kvartsfinal: 1.5,
   Semifinal: 2,
   Bronsmatch: 1.5,
-  Final: 2.5,
+  Final: 2,
 };
 
 export function scoreGroupPrediction(prediction: Prediction, actual?: ScoreLine) {
