@@ -1764,6 +1764,9 @@ export default function Home() {
               currentProfile={currentProfile}
               allPredictionsByProfile={allPredictionsByProfile}
               allBonusByProfile={allBonusByProfile}
+              lockedDates={lockedDates}
+              lockedMatchIds={lockedMatchIds}
+              bonusLocked={bonusLocked}
             />
           )}
           {activeTab === "Admin" && (
@@ -4002,11 +4005,17 @@ function OtherPredictionsPanel({
   currentProfile,
   allPredictionsByProfile,
   allBonusByProfile,
+  lockedDates,
+  lockedMatchIds,
+  bonusLocked,
 }: {
   profiles: PlayerProfile[];
   currentProfile: PlayerProfile;
   allPredictionsByProfile: Record<string, Prediction[]>;
   allBonusByProfile: Record<string, BonusPrediction>;
+  lockedDates: string[];
+  lockedMatchIds: number[];
+  bonusLocked: boolean;
 }) {
   const playerProfiles = profiles.filter((profile) => profile.role === "player");
   const visibleProfiles = currentProfile.role === "admin" ? playerProfiles : playerProfiles.filter((profile) => profile.id !== currentProfile.id);
@@ -4068,12 +4077,21 @@ function OtherPredictionsPanel({
         </div>
 
         <div className="mt-5 rounded-3xl border border-white/10 bg-black/20 p-4">
-          <p className="text-xs font-black uppercase tracking-[0.24em] text-cyan">Bonusfrågor</p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-black uppercase tracking-[0.24em] text-cyan">Bonusfrågor</p>
+            {!bonusLocked ? (
+              <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-white/45">Dolda tills första matchstart</span>
+            ) : null}
+          </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {bonusFieldLabels.map((question) => (
               <div key={question.key} className="rounded-2xl bg-white/[0.05] px-3 py-2">
                 <p className="text-xs text-white/45">{question.label}</p>
-                <p className="mt-1 font-bold text-white">{selectedBonus[question.key] ?? "Ej tippat"}</p>
+                {bonusLocked ? (
+                  <p className="mt-1 font-bold text-white">{selectedBonus[question.key] ?? "Ej tippat"}</p>
+                ) : (
+                  <SkeletonLine className="mt-2 h-5 w-32" />
+                )}
               </div>
             ))}
           </div>
@@ -4089,6 +4107,8 @@ function OtherPredictionsPanel({
                 tone="volt"
                 matches={groupMatches}
                 predictionMap={predictionMap}
+                lockedDates={lockedDates}
+                lockedMatchIds={lockedMatchIds}
               />
             );
           })}
@@ -4102,6 +4122,8 @@ function OtherPredictionsPanel({
                 tone="flare"
                 matches={stageMatches}
                 predictionMap={predictionMap}
+                lockedDates={lockedDates}
+                lockedMatchIds={lockedMatchIds}
               />
             );
           })}
@@ -4116,11 +4138,15 @@ function PredictionReadOnlySection({
   tone,
   matches,
   predictionMap,
+  lockedDates,
+  lockedMatchIds,
 }: {
   title: string;
   tone: "volt" | "flare";
   matches: Fixture[];
   predictionMap: Map<number, Prediction>;
+  lockedDates: string[];
+  lockedMatchIds: number[];
 }) {
   const accentClass = tone === "flare" ? "text-flare" : "text-volt";
 
@@ -4132,25 +4158,34 @@ function PredictionReadOnlySection({
       <div className="grid gap-2 p-2 sm:p-3">
         {matches.map((match) => {
           const prediction = predictionMap.get(match.id);
+          const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
           const scoreLabel = prediction?.score ? `${prediction.score.home}-${prediction.score.away}` : "-";
 
           return (
             <div
               key={match.id}
-              className="grid grid-cols-[38px_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-2xl border border-white/10 bg-pitch/55 p-3 text-sm sm:grid-cols-[46px_minmax(0,1fr)_72px_minmax(0,1fr)_120px]"
+              className="grid grid-cols-[38px_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-2xl border border-white/10 bg-pitch/55 p-3 text-sm sm:grid-cols-[46px_minmax(0,1fr)_72px_minmax(0,1fr)]"
             >
               <span className="text-xs font-bold text-white/40">#{match.id}</span>
               <span className="min-w-0 truncate font-bold"><TeamLabel team={match.home} /></span>
-              <span className={classNames("text-center font-display text-lg font-black", accentClass)}>{scoreLabel}</span>
-              <span className="min-w-0 truncate text-right font-bold"><TeamLabel team={match.away} /></span>
-              <span className="col-span-4 text-xs text-white/45 sm:col-span-1 sm:text-right">
-                {prediction?.winner ?? "Ej tippat"}
+              <span className={classNames("grid min-h-7 place-items-center text-center font-display text-lg font-black", accentClass)}>
+                {isLocked ? scoreLabel : <SkeletonLine className="h-6 w-14" />}
               </span>
+              <span className="min-w-0 truncate text-right font-bold"><TeamLabel team={match.away} /></span>
             </div>
           );
         })}
       </div>
     </section>
+  );
+}
+
+function SkeletonLine({ className }: { className?: string }) {
+  return (
+    <span
+      aria-label="Dolt tips"
+      className={classNames("inline-block animate-pulse rounded-full bg-white/10", className)}
+    />
   );
 }
 
