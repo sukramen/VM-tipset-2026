@@ -102,7 +102,9 @@ export function scoreBonusPrediction(
   if (sameText(prediction.worldChampion, actual.worldChampion)) points += 15;
   if (sameText(prediction.topScorer, actual.topScorer)) points += 10;
   if (sameTextOption(prediction.mostGroupGoals, actual.mostGroupGoals)) points += 8;
+  if (sameTextOption(prediction.mostCardsGroupStage, actual.mostCardsGroupStage)) points += 5;
   if (sameTextOption(prediction.firstHostEliminated, actual.firstHostEliminated)) points += 8;
+  if (sameTextOption(prediction.darkhorseQuarterfinalist, actual.darkhorseQuarterfinalist)) points += 8;
   if (
     typeof prediction.totalTournamentGoals === "number" &&
     typeof actual.totalTournamentGoals === "number" &&

@@ -42,8 +42,10 @@ export type BonusPrediction = {
   worldChampion?: string;
   topScorer?: string;
   mostGroupGoals?: string;
+  mostCardsGroupStage?: string;
   totalTournamentGoals?: number;
   firstHostEliminated?: string;
+  darkhorseQuarterfinalist?: string;
   biggestWinMargin?: number;
 };
 

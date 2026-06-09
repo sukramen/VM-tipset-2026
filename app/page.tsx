@@ -58,7 +58,7 @@ const adminStageOrder: MatchStage[] = ["Gruppspel", ...stageOrder];
 const groupLetters = Object.keys(groups) as GroupLetter[];
 const fixtureDates = Array.from(new Set(fixtures.map((fixture) => fixture.date))).sort();
 const predictionsVersion = "5";
-const bonusVersion = "3";
+const bonusVersion = "4";
 const requireAdminPassword = true;
 const matchDaySyncIntervalMs = 15 * 60_000;
 const liveMatchSyncIntervalMs = 3 * 60_000;
@@ -76,6 +76,39 @@ const defaultPredictions: Prediction[] = fixtures.map((match) => ({
 
 const defaultBonusAnswers: BonusPrediction = {};
 
+type BonusFieldLabel = {
+  key: keyof BonusPrediction;
+  label: string;
+  points: string;
+  type?: "number";
+  placeholder?: string;
+  playerInput?: "select";
+  options?: string[];
+};
+
+const darkhorseExcludedTeams = new Set([
+  "England",
+  "Frankrike",
+  "Kroatien",
+  "Norge",
+  "Portugal",
+  "Tyskland",
+  "Nederländerna",
+  "Spanien",
+  "Belgien",
+  "Turkiet",
+  "Marocko",
+  "Senegal",
+  "Argentina",
+  "Brasilien",
+  "Schweiz",
+]);
+
+const darkhorseTeamOptions = Object.values(groups)
+  .flat()
+  .filter((team) => !darkhorseExcludedTeams.has(team))
+  .sort((a, b) => a.localeCompare(b, "sv"));
+
 const thirdPlaceSlotOrder = ["CEFHI", "EFGIJ", "BEFIJ", "ABCDF", "AEHIJ", "CDFGH", "DEIJL", "EHIJK"] as const;
 const thirdPlaceAssignmentTable = new Map(
   "EFGHIJKL:EJIFHGLK,DFGHIJKL:HGIDJFLK,DEGHIJKL:EJIDHGLK,DEFHIJKL:EJIDHFLK,DEFGIJKL:EGIDJFLK,DEFGHJKL:EGJDHFLK,DEFGHIKL:EGIDHFLK,DEFGHIJL:EGJDHFLI,DEFGHIJK:EGJDHFIK,CFGHIJKL:HGICJFLK,CEGHIJKL:EJICHGLK,CEFHIJKL:EJICHFLK,CEFGIJKL:EGICJFLK,CEFGHJKL:EGJCHFLK,CEFGHIKL:EGICHFLK,CEFGHIJL:EGJCHFLI,CEFGHIJK:EGJCHFIK,CDGHIJKL:HGICJDLK,CDFHIJKL:CJIDHFLK,CDFGIJKL:CGIDJFLK,CDFGHJKL:CGJDHFLK,CDFGHIKL:CGIDHFLK,CDFGHIJL:CGJDHFLI,CDFGHIJK:CGJDHFIK,CDEHIJKL:EJICHDLK,CDEGIJKL:EGICJDLK,CDEGHJKL:EGJCHDLK,CDEGHIKL:EGICHDLK,CDEGHIJL:EGJCHDLI,CDEGHIJK:EGJCHDIK,CDEFIJKL:CJEDIFLK,CDEFHJKL:CJEDHFLK,CDEFHIKL:CEIDHFLK,CDEFHIJL:CJEDHFLI,CDEFHIJK:CJEDHFIK,CDEFGJKL:CGEDJFLK,CDEFGIKL:CGEDIFLK,CDEFGIJL:CGEDJFLI,CDEFGIJK:CGEDJFIK,CDEFGHKL:CGEDHFLK,CDEFGHJL:CGJDHFLE,CDEFGHJK:CGJDHFEK,CDEFGHIL:CGEDHFLI,CDEFGHIK:CGEDHFIK,CDEFGHIJ:CGJDHFEI,BFGHIJKL:HJBFIGLK,BEGHIJKL:EJIBHGLK,BEFHIJKL:EJBFIHLK,BEFGIJKL:EJBFIGLK,BEFGHJKL:EJBFHGLK,BEFGHIKL:EGBFIHLK,BEFGHIJL:EJBFHGLI,BEFGHIJK:EJBFHGIK,BDGHIJKL:HJBDIGLK,BDFHIJKL:HJBDIFLK,BDFGIJKL:IGBDJFLK,BDFGHJKL:HGBDJFLK,BDFGHIKL:HGBDIFLK,BDFGHIJL:HGBDJFLI,BDFGHIJK:HGBDJFIK,BDEHIJKL:EJBDIHLK,BDEGIJKL:EJBDIGLK,BDEGHJKL:EJBDHGLK,BDEGHIKL:EGBDIHLK,BDEGHIJL:EJBDHGLI,BDEGHIJK:EJBDHGIK,BDEFIJKL:EJBDIFLK,BDEFHJKL:EJBDHFLK,BDEFHIKL:EIBDHFLK,BDEFHIJL:EJBDHFLI,BDEFHIJK:EJBDHFIK,BDEFGJKL:EGBDJFLK,BDEFGIKL:EGBDIFLK,BDEFGIJL:EGBDJFLI,BDEFGIJK:EGBDJFIK,BDEFGHKL:EGBDHFLK,BDEFGHJL:HGBDJFLE,BDEFGHJK:HGBDJFEK,BDEFGHIL:EGBDHFLI,BDEFGHIK:EGBDHFIK,BDEFGHIJ:HGBDJFEI,BCGHIJKL:HJBCIGLK,BCFHIJKL:HJBCIFLK,BCFGIJKL:IGBCJFLK,BCFGHJKL:HGBCJFLK,BCFGHIKL:HGBCIFLK,BCFGHIJL:HGBCJFLI,BCFGHIJK:HGBCJFIK,BCEHIJKL:EJBCIHLK,BCEGIJKL:EJBCIGLK,BCEGHJKL:EJBCHGLK,BCEGHIKL:EGBCIHLK,BCEGHIJL:EJBCHGLI,BCEGHIJK:EJBCHGIK,BCEFIJKL:EJBCIFLK,BCEFHJKL:EJBCHFLK,BCEFHIKL:EIBCHFLK,BCEFHIJL:EJBCHFLI,BCEFHIJK:EJBCHFIK,BCEFGJKL:EGBCJFLK,BCEFGIKL:EGBCIFLK,BCEFGIJL:EGBCJFLI,BCEFGIJK:EGBCJFIK,BCEFGHKL:EGBCHFLK,BCEFGHJL:HGBCJFLE,BCEFGHJK:HGBCJFEK,BCEFGHIL:EGBCHFLI,BCEFGHIK:EGBCHFIK,BCEFGHIJ:HGBCJFEI,BCDHIJKL:HJBCIDLK,BCDGIJKL:IGBCJDLK,BCDGHJKL:HGBCJDLK,BCDGHIKL:HGBCIDLK,BCDGHIJL:HGBCJDLI,BCDGHIJK:HGBCJDIK,BCDFIJKL:CJBDIFLK,BCDFHJKL:CJBDHFLK,BCDFHIKL:CIBDHFLK,BCDFHIJL:CJBDHFLI,BCDFHIJK:CJBDHFIK,BCDFGJKL:CGBDJFLK,BCDFGIKL:CGBDIFLK,BCDFGIJL:CGBDJFLI,BCDFGIJK:CGBDJFIK,BCDFGHKL:CGBDHFLK,BCDFGHJL:CGBDHFLJ,BCDFGHJK:HGBCJFDK,BCDFGHIL:CGBDHFLI,BCDFGHIK:CGBDHFIK,BCDFGHIJ:HGBCJFDI,BCDEIJKL:EJBCIDLK,BCDEHJKL:EJBCHDLK,BCDEHIKL:EIBCHDLK,BCDEHIJL:EJBCHDLI,BCDEHIJK:EJBCHDIK,BCDEGJKL:EGBCJDLK,BCDEGIKL:EGBCIDLK,BCDEGIJL:EGBCJDLI,BCDEGIJK:EGBCJDIK,BCDEGHKL:EGBCHDLK,BCDEGHJL:HGBCJDLE,BCDEGHJK:HGBCJDEK,BCDEGHIL:EGBCHDLI,BCDEGHIK:EGBCHDIK,BCDEGHIJ:HGBCJDEI,BCDEFJKL:CJBDEFLK,BCDEFIKL:CEBDIFLK,BCDEFIJL:CJBDEFLI,BCDEFIJK:CJBDEFIK,BCDEFHKL:CEBDHFLK,BCDEFHJL:CJBDHFLE,BCDEFHJK:CJBDHFEK,BCDEFHIL:CEBDHFLI,BCDEFHIK:CEBDHFIK,BCDEFHIJ:CJBDHFEI,BCDEFGKL:CGBDEFLK,BCDEFGJL:CGBDJFLE,BCDEFGJK:CGBDJFEK,BCDEFGIL:CGBDEFLI,BCDEFGIK:CGBDEFIK,BCDEFGIJ:CGBDJFEI,BCDEFGHL:CGBDHFLE,BCDEFGHK:CGBDHFEK,BCDEFGHJ:HGBCJFDE,BCDEFGHI:CGBDHFEI,AFGHIJKL:HJIFAGLK,AEGHIJKL:EJIAHGLK,AEFHIJKL:EJIFAHLK,AEFGIJKL:EJIFAGLK,AEFGHJKL:EGJFAHLK,AEFGHIKL:EGIFAHLK,AEFGHIJL:EGJFAHLI,AEFGHIJK:EGJFAHIK,ADGHIJKL:HJIDAGLK,ADFHIJKL:HJIDAFLK,ADFGIJKL:IGJDAFLK,ADFGHJKL:HGJDAFLK,ADFGHIKL:HGIDAFLK,ADFGHIJL:HGJDAFLI,ADFGHIJK:HGJDAFIK,ADEHIJKL:EJIDAHLK,ADEGIJKL:EJIDAGLK,ADEGHJKL:EGJDAHLK,ADEGHIKL:EGIDAHLK,ADEGHIJL:EGJDAHLI,ADEGHIJK:EGJDAHIK,ADEFIJKL:EJIDAFLK,ADEFHJKL:HJEDAFLK,ADEFHIKL:HEIDAFLK,ADEFHIJL:HJEDAFLI,ADEFHIJK:HJEDAFIK,ADEFGJKL:EGJDAFLK,ADEFGIKL:EGIDAFLK,ADEFGIJL:EGJDAFLI,ADEFGIJK:EGJDAFIK,ADEFGHKL:HGEDAFLK,ADEFGHJL:HGJDAFLE,ADEFGHJK:HGJDAFEK,ADEFGHIL:HGEDAFLI,ADEFGHIK:HGEDAFIK,ADEFGHIJ:HGJDAFEI,ACGHIJKL:HJICAGLK,ACFHIJKL:HJICAFLK,ACFGIJKL:IGJCAFLK,ACFGHJKL:HGJCAFLK,ACFGHIKL:HGICAFLK,ACFGHIJL:HGJCAFLI,ACFGHIJK:HGJCAFIK,ACEHIJKL:EJICAHLK,ACEGIJKL:EJICAGLK,ACEGHJKL:EGJCAHLK,ACEGHIKL:EGICAHLK,ACEGHIJL:EGJCAHLI,ACEGHIJK:EGJCAHIK,ACEFIJKL:EJICAFLK,ACEFHJKL:HJECAFLK,ACEFHIKL:HEICAFLK,ACEFHIJL:HJECAFLI,ACEFHIJK:HJECAFIK,ACEFGJKL:EGJCAFLK,ACEFGIKL:EGICAFLK,ACEFGIJL:EGJCAFLI,ACEFGIJK:EGJCAFIK,ACEFGHKL:HGECAFLK,ACEFGHJL:HGJCAFLE,ACEFGHJK:HGJCAFEK,ACEFGHIL:HGECAFLI,ACEFGHIK:HGECAFIK,ACEFGHIJ:HGJCAFEI,ACDHIJKL:HJICADLK,ACDGIJKL:IGJCADLK,ACDGHJKL:HGJCADLK,ACDGHIKL:HGICADLK,ACDGHIJL:HGJCADLI,ACDGHIJK:HGJCADIK,ACDFIJKL:CJIDAFLK,ACDFHJKL:HJFCADLK,ACDFHIKL:HFICADLK,ACDFHIJL:HJFCADLI,ACDFHIJK:HJFCADIK,ACDFGJKL:CGJDAFLK,ACDFGIKL:CGIDAFLK,ACDFGIJL:CGJDAFLI,ACDFGIJK:CGJDAFIK,ACDFGHKL:HGFCADLK,ACDFGHJL:CGJDAFLH,ACDFGHJK:HGJCAFDK,ACDFGHIL:HGFCADLI,ACDFGHIK:HGFCADIK,ACDFGHIJ:HGJCAFDI,ACDEIJKL:EJICADLK,ACDEHJKL:HJECADLK,ACDEHIKL:HEICADLK,ACDEHIJL:HJECADLI,ACDEHIJK:HJECADIK,ACDEGJKL:EGJCADLK,ACDEGIKL:EGICADLK,ACDEGIJL:EGJCADLI,ACDEGIJK:EGJCADIK,ACDEGHKL:HGECADLK,ACDEGHJL:HGJCADLE,ACDEGHJK:HGJCADEK,ACDEGHIL:HGECADLI,ACDEGHIK:HGECADIK,ACDEGHIJ:HGJCADEI,ACDEFJKL:CJEDAFLK,ACDEFIKL:CEIDAFLK,ACDEFIJL:CJEDAFLI,ACDEFIJK:CJEDAFIK,ACDEFHKL:HEFCADLK,ACDEFHJL:HJFCADLE,ACDEFHJK:HJECAFDK,ACDEFHIL:HEFCADLI,ACDEFHIK:HEFCADIK,ACDEFHIJ:HJECAFDI,ACDEFGKL:CGEDAFLK,ACDEFGJL:CGJDAFLE,ACDEFGJK:CGJDAFEK,ACDEFGIL:CGEDAFLI,ACDEFGIK:CGEDAFIK,ACDEFGIJ:CGJDAFEI,ACDEFGHL:HGFCADLE,ACDEFGHK:HGECAFDK,ACDEFGHJ:HGJCAFDE,ACDEFGHI:HGECAFDI,ABGHIJKL:HJBAIGLK,ABFHIJKL:HJBAIFLK,ABFGIJKL:IJBFAGLK,ABFGHJKL:HJBFAGLK,ABFGHIKL:HGBAIFLK,ABFGHIJL:HJBFAGLI,ABFGHIJK:HJBFAGIK,ABEHIJKL:EJBAIHLK,ABEGIJKL:EJBAIGLK,ABEGHJKL:EJBAHGLK,ABEGHIKL:EGBAIHLK,ABEGHIJL:EJBAHGLI,ABEGHIJK:EJBAHGIK,ABEFIJKL:EJBAIFLK,ABEFHJKL:EJBFAHLK,ABEFHIKL:EIBFAHLK,ABEFHIJL:EJBFAHLI,ABEFHIJK:EJBFAHIK,ABEFGJKL:EJBFAGLK,ABEFGIKL:EGBAIFLK,ABEFGIJL:EJBFAGLI,ABEFGIJK:EJBFAGIK,ABEFGHKL:EGBFAHLK,ABEFGHJL:HJBFAGLE,ABEFGHJK:HJBFAGEK,ABEFGHIL:EGBFAHLI,ABEFGHIK:EGBFAHIK,ABEFGHIJ:HJBFAGEI,ABDHIJKL:IJBDAHLK,ABDGIJKL:IJBDAGLK,ABDGHJKL:HJBDAGLK,ABDGHIKL:IGBDAHLK,ABDGHIJL:HJBDAGLI,ABDGHIJK:HJBDAGIK,ABDFIJKL:IJBDAFLK,ABDFHJKL:HJBDAFLK,ABDFHIKL:HIBDAFLK,ABDFHIJL:HJBDAFLI,ABDFHIJK:HJBDAFIK,ABDFGJKL:FJBDAGLK,ABDFGIKL:IGBDAFLK,ABDFGIJL:FJBDAGLI,ABDFGIJK:FJBDAGIK,ABDFGHKL:HGBDAFLK,ABDFGHJL:HGBDAFLJ,ABDFGHJK:HGBDAFJK,ABDFGHIL:HGBDAFLI,ABDFGHIK:HGBDAFIK,ABDFGHIJ:HGBDAFIJ,ABDEIJKL:EJBAIDLK,ABDEHJKL:EJBDAHLK,ABDEHIKL:EIBDAHLK,ABDEHIJL:EJBDAHLI,ABDEHIJK:EJBDAHIK,ABDEGJKL:EJBDAGLK,ABDEGIKL:EGBAIDLK,ABDEGIJL:EJBDAGLI,ABDEGIJK:EJBDAGIK,ABDEGHKL:EGBDAHLK,ABDEGHJL:HJBDAGLE,ABDEGHJK:HJBDAGEK,ABDEGHIL:EGBDAHLI,ABDEGHIK:EGBDAHIK,ABDEGHIJ:HJBDAGEI,ABDEFJKL:EJBDAFLK,ABDEFIKL:EIBDAFLK,ABDEFIJL:EJBDAFLI,ABDEFIJK:EJBDAFIK,ABDEFHKL:HEBDAFLK,ABDEFHJL:HJBDAFLE,ABDEFHJK:HJBDAFEK,ABDEFHIL:HEBDAFLI,ABDEFHIK:HEBDAFIK,ABDEFHIJ:HJBDAFEI,ABDEFGKL:EGBDAFLK,ABDEFGJL:EGBDAFLJ,ABDEFGJK:EGBDAFJK,ABDEFGIL:EGBDAFLI,ABDEFGIK:EGBDAFIK,ABDEFGIJ:EGBDAFIJ,ABDEFGHL:HGBDAFLE,ABDEFGHK:HGBDAFEK,ABDEFGHJ:HGBDAFEJ,ABDEFGHI:HGBDAFEI,ABCHIJKL:IJBCAHLK,ABCGIJKL:IJBCAGLK,ABCGHJKL:HJBCAGLK,ABCGHIKL:IGBCAHLK,ABCGHIJL:HJBCAGLI,ABCGHIJK:HJBCAGIK,ABCFIJKL:IJBCAFLK,ABCFHJKL:HJBCAFLK,ABCFHIKL:HIBCAFLK,ABCFHIJL:HJBCAFLI,ABCFHIJK:HJBCAFIK,ABCFGJKL:CJBFAGLK,ABCFGIKL:IGBCAFLK,ABCFGIJL:CJBFAGLI,ABCFGIJK:CJBFAGIK,ABCFGHKL:HGBCAFLK,ABCFGHJL:HGBCAFLJ,ABCFGHJK:HGBCAFJK,ABCFGHIL:HGBCAFLI,ABCFGHIK:HGBCAFIK,ABCFGHIJ:HGBCAFIJ,ABCEIJKL:EJBAICLK,ABCEHJKL:EJBCAHLK,ABCEHIKL:EIBCAHLK,ABCEHIJL:EJBCAHLI,ABCEHIJK:EJBCAHIK,ABCEGJKL:EJBCAGLK,ABCEGIKL:EGBAICLK,ABCEGIJL:EJBCAGLI,ABCEGIJK:EJBCAGIK,ABCEGHKL:EGBCAHLK,ABCEGHJL:HJBCAGLE,ABCEGHJK:HJBCAGEK,ABCEGHIL:EGBCAHLI,ABCEGHIK:EGBCAHIK,ABCEGHIJ:HJBCAGEI,ABCEFJKL:EJBCAFLK,ABCEFIKL:EIBCAFLK,ABCEFIJL:EJBCAFLI,ABCEFIJK:EJBCAFIK,ABCEFHKL:HEBCAFLK,ABCEFHJL:HJBCAFLE,ABCEFHJK:HJBCAFEK,ABCEFHIL:HEBCAFLI,ABCEFHIK:HEBCAFIK,ABCEFHIJ:HJBCAFEI,ABCEFGKL:EGBCAFLK,ABCEFGJL:EGBCAFLJ,ABCEFGJK:EGBCAFJK,ABCEFGIL:EGBCAFLI,ABCEFGIK:EGBCAFIK,ABCEFGIJ:EGBCAFIJ,ABCEFGHL:HGBCAFLE,ABCEFGHK:HGBCAFEK,ABCEFGHJ:HGBCAFEJ,ABCEFGHI:HGBCAFEI,ABCDIJKL:IJBCADLK,ABCDHJKL:HJBCADLK,ABCDHIKL:HIBCADLK,ABCDHIJL:HJBCADLI,ABCDHIJK:HJBCADIK,ABCDGJKL:CJBDAGLK,ABCDGIKL:IGBCADLK,ABCDGIJL:CJBDAGLI,ABCDGIJK:CJBDAGIK,ABCDGHKL:HGBCADLK,ABCDGHJL:HGBCADLJ,ABCDGHJK:HGBCADJK,ABCDGHIL:HGBCADLI,ABCDGHIK:HGBCADIK,ABCDGHIJ:HGBCADIJ,ABCDFJKL:CJBDAFLK,ABCDFIKL:CIBDAFLK,ABCDFIJL:CJBDAFLI,ABCDFIJK:CJBDAFIK,ABCDFHKL:HFBCADLK,ABCDFHJL:CJBDAFLH,ABCDFHJK:HJBCAFDK,ABCDFHIL:HFBCADLI,ABCDFHIK:HFBCADIK,ABCDFHIJ:HJBCAFDI,ABCDFGKL:CGBDAFLK,ABCDFGJL:CGBDAFLJ,ABCDFGJK:CGBDAFJK,ABCDFGIL:CGBDAFLI,ABCDFGIK:CGBDAFIK,ABCDFGIJ:CGBDAFIJ,ABCDFGHL:CGBDAFLH,ABCDFGHK:HGBCAFDK,ABCDFGHJ:HGBCAFDJ,ABCDFGHI:HGBCAFDI,ABCDEJKL:EJBCADLK,ABCDEIKL:EIBCADLK,ABCDEIJL:EJBCADLI,ABCDEIJK:EJBCADIK,ABCDEHKL:HEBCADLK,ABCDEHJL:HJBCADLE,ABCDEHJK:HJBCADEK,ABCDEHIL:HEBCADLI,ABCDEHIK:HEBCADIK,ABCDEHIJ:HJBCADEI,ABCDEGKL:EGBCADLK,ABCDEGJL:EGBCADLJ,ABCDEGJK:EGBCADJK,ABCDEGIL:EGBCADLI,ABCDEGIK:EGBCADIK,ABCDEGIJ:EGBCADIJ,ABCDEGHL:HGBCADLE,ABCDEGHK:HGBCADEK,ABCDEGHJ:HGBCADEJ,ABCDEGHI:HGBCADEI,ABCDEFKL:CEBDAFLK,ABCDEFJL:CJBDAFLE,ABCDEFJK:CJBDAFEK,ABCDEFIL:CEBDAFLI,ABCDEFIK:CEBDAFIK,ABCDEFIJ:CJBDAFEI,ABCDEFHL:HFBCADLE,ABCDEFHK:HEBCAFDK,ABCDEFHJ:HJBCAFDE,ABCDEFHI:HEBCAFDI,ABCDEFGL:CGBDAFLE,ABCDEFGK:CGBDAFEK,ABCDEFGJ:CGBDAFEJ,ABCDEFGI:CGBDAFEI,ABCDEFGH:HGBCAFDE"
@@ -83,12 +116,21 @@ const thirdPlaceAssignmentTable = new Map(
     .map((row) => row.split(":") as [string, string]),
 );
 
-const bonusFieldLabels: Array<{ key: keyof BonusPrediction; label: string; points: string; type?: "number"; placeholder?: string }> = [
+const bonusFieldLabels: BonusFieldLabel[] = [
   { key: "worldChampion", label: "Världsmästare", points: "15p" },
   { key: "topScorer", label: "Skytteligavinnare", points: "10p" },
   { key: "mostGroupGoals", label: "Flest mål i gruppspel (lag)", points: "8p", placeholder: "Ex. USA" },
+  { key: "mostCardsGroupStage", label: "Flest kort i gruppspelet (lag)", points: "5p", placeholder: "Ditt svar" },
   { key: "totalTournamentGoals", label: "Närmast totalt antal mål i turneringen", points: "8p", type: "number" },
   { key: "firstHostEliminated", label: "Bästa poänggörare i turneringen", points: "8p", placeholder: "Ditt svar" },
+  {
+    key: "darkhorseQuarterfinalist",
+    label: "Tar sig till kvartsfinal (darkhorse)",
+    points: "8p",
+    playerInput: "select",
+    options: darkhorseTeamOptions,
+    placeholder: "Välj lag",
+  },
   { key: "biggestWinMargin", label: "Största segermarginalen i en match", points: "5p", type: "number" },
 ];
 
@@ -310,6 +352,10 @@ function hasTournamentStarted(now = new Date()) {
   return getFixtureKickoff(fixtures[0]) <= now;
 }
 
+function isBonusLocked(now: Date, lockedDates: string[], lockedMatchIds: number[] = []) {
+  return hasTournamentStarted(now) || isFixtureLocked(fixtures[0], lockedDates, lockedMatchIds);
+}
+
 function getMatchesByDate(date: string) {
   return fixtures
     .filter((fixture) => fixture.date === date)
@@ -346,7 +392,9 @@ type DailyScoreMatch = {
   home: string;
   away: string;
   predictedScore?: ScoreLine;
+  predictedWinner?: string;
   actualScore: ScoreLine;
+  actualWinner?: string;
   points: number;
 };
 
@@ -412,7 +460,9 @@ function buildDailyScoreData(
         home: displayHome,
         away: displayAway,
         predictedScore: prediction?.score,
+        predictedWinner: predictionForScore?.winner,
         actualScore: results[fixture.id],
+        actualWinner,
         points: dayPoints,
       };
       if (existingDay) {
@@ -1208,7 +1258,7 @@ export default function Home() {
   );
 
   const dashboardNow = useMemo(() => new Date(clockTick), [clockTick]);
-  const bonusLocked = useMemo(() => hasTournamentStarted(dashboardNow), [dashboardNow]);
+  const bonusLocked = useMemo(() => isBonusLocked(dashboardNow, lockedDates, lockedMatchIds), [dashboardNow, lockedDates, lockedMatchIds]);
   const tournamentCountdown = useMemo(() => getTournamentCountdown(dashboardNow), [dashboardNow]);
   const next = useMemo(() => getDashboardNextFixture(homePreviewDate || undefined, dashboardNow), [dashboardNow, homePreviewDate]);
   const matchDayPanel = useMemo(() => getMatchDayPanel(homePreviewDate || undefined, dashboardNow), [dashboardNow, homePreviewDate]);
@@ -1315,7 +1365,7 @@ export default function Home() {
   }
 
   function updateBonusAnswer(key: keyof BonusPrediction, value: string) {
-    if (hasTournamentStarted()) return;
+    if (bonusLocked) return;
     setBonusAnswers((current) => updateBonusValue(current, key, value));
   }
 
@@ -1400,6 +1450,78 @@ export default function Home() {
     setResultWinners(randomResultWinners);
     setLockedDates(allLockedDates);
     setLockedMatchIds(fixtures.map((fixture) => fixture.id));
+  }
+
+  function randomizeResultsAndLockOnly() {
+    const confirmed = window.confirm("Slumpa bara riktiga resultat och lås alla matcher? Spelarnas tips ändras inte.");
+    if (!confirmed) return;
+
+    const randomResults = fixtures.reduce<Record<number, ScoreLine>>((resultMap, fixture) => {
+      resultMap[fixture.id] = randomScore();
+      return resultMap;
+    }, {});
+
+    const allLockedDates = [...new Set(fixtures.map((fixture) => fixture.date))];
+    const randomResultWinners: Record<number, string> = {};
+    for (const stage of stageOrder) {
+      const resolvedKnockout = buildResolvedKnockoutFixtures({
+        sourceResults: randomResults,
+        lockedDates: allLockedDates,
+        resolveGroupTeams: true,
+        useSourceResultsForAdvancement: true,
+        advancementWinners: randomResultWinners,
+      });
+
+      for (const match of resolvedKnockout.filter((fixture) => fixture.stage === stage)) {
+        const score = randomResults[match.id];
+        randomResultWinners[match.id] =
+          score.home > score.away
+            ? match.resolvedHome
+            : score.home < score.away
+              ? match.resolvedAway
+              : Math.random() > 0.5
+                ? match.resolvedHome
+                : match.resolvedAway;
+      }
+    }
+
+    const allLockedMatchIds = fixtures.map((fixture) => fixture.id);
+    if (storageMode === "supabase") {
+      saveResultsToDb(randomResults, randomResultWinners).catch((error) => logStorageError("Kunde inte spara slumpade resultat.", error));
+      saveAppStateToDb("locked_dates", allLockedDates).catch((error) => logStorageError("Kunde inte spara låsta dagar.", error));
+      saveAppStateToDb("locked_match_ids", allLockedMatchIds).catch((error) => logStorageError("Kunde inte spara låsta matcher.", error));
+    } else {
+      window.localStorage.setItem("vm-tipset-results", JSON.stringify(randomResults));
+      window.localStorage.setItem("vm-tipset-result-winners", JSON.stringify(randomResultWinners));
+      window.localStorage.setItem("vm-tipset-locked-dates", JSON.stringify(allLockedDates));
+      window.localStorage.setItem("vm-tipset-locked-match-ids", JSON.stringify(allLockedMatchIds));
+    }
+
+    setResults(randomResults);
+    setResultWinners(randomResultWinners);
+    setLockedDates(allLockedDates);
+    setLockedMatchIds(allLockedMatchIds);
+  }
+
+  function resetResultsAndLocksOnly() {
+    const confirmed = window.confirm("Nolla bara resultat och låsningar? Spelarnas tips och bonusar ändras inte.");
+    if (!confirmed) return;
+
+    if (storageMode === "supabase") {
+      saveResultsToDb({}, {}).catch((error) => logStorageError("Kunde nollställa adminresultat.", error));
+      saveAppStateToDb("locked_dates", []).catch((error) => logStorageError("Kunde nollställa låsta dagar.", error));
+      saveAppStateToDb("locked_match_ids", []).catch((error) => logStorageError("Kunde nollställa låsta matcher.", error));
+    } else {
+      window.localStorage.setItem("vm-tipset-results", JSON.stringify({}));
+      window.localStorage.setItem("vm-tipset-result-winners", JSON.stringify({}));
+      window.localStorage.setItem("vm-tipset-locked-dates", JSON.stringify([]));
+      window.localStorage.setItem("vm-tipset-locked-match-ids", JSON.stringify([]));
+    }
+
+    setResults({});
+    setResultWinners({});
+    setLockedDates([]);
+    setLockedMatchIds([]);
   }
 
   function resetDevData() {
@@ -1785,6 +1907,8 @@ export default function Home() {
               openProfileAsAdmin={openProfileAsAdmin}
               resetProfilePassword={resetProfilePassword}
               randomizeDevData={randomizeDevData}
+              randomizeResultsAndLockOnly={randomizeResultsAndLockOnly}
+              resetResultsAndLocksOnly={resetResultsAndLocksOnly}
               resetDevData={resetDevData}
               openWinnersModal={openWinnersModal}
               lockedDates={lockedDates}
@@ -1798,7 +1922,19 @@ export default function Home() {
               updateOfficialBonusAnswer={updateOfficialBonusAnswer}
             />
           )}
-          {activeTab === "Statistik" && <StatsPanel leaderboardRows={liveLeaderboard} dailyScoreData={dailyScoreData} />}
+          {activeTab === "Statistik" && (
+            <StatsPanel
+              leaderboardRows={liveLeaderboard}
+              profiles={profiles}
+              currentProfileId={currentProfile?.id}
+              activePredictions={predictions}
+              storedPredictions={allPredictionsByProfile}
+              results={results}
+              lockedDates={lockedDates}
+              lockedMatchIds={lockedMatchIds}
+              resultWinners={resultWinners}
+            />
+          )}
         </motion.section>
       </AnimatePresence>
       <AnimatePresence>
@@ -2212,85 +2348,6 @@ function Dashboard({
   );
 }
 
-function DailyPointsSummary({ dailyScoreData }: { dailyScoreData: DailyScoreDay[] }) {
-  const scoredDays = dailyScoreData.filter((day) => day.matches.length > 0);
-  const todayKey = getSwedishDateKey();
-  const preferredDay = scoredDays.find((day) => day.dateKey === todayKey) ?? scoredDays[scoredDays.length - 1];
-  const [selectedDate, setSelectedDate] = useState(preferredDay?.dateKey ?? "");
-  const selectedDay = scoredDays.find((day) => day.dateKey === selectedDate) ?? preferredDay;
-
-  useEffect(() => {
-    if (!preferredDay) return;
-    if (!scoredDays.some((day) => day.dateKey === selectedDate)) {
-      setSelectedDate(preferredDay.dateKey);
-    }
-  }, [preferredDay, scoredDays, selectedDate]);
-
-  if (!selectedDay) {
-    return (
-      <section className="glass w-full min-w-0 max-w-full overflow-hidden rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
-        <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Dagens poäng</p>
-        <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">Ingen avräkning än</h2>
-        <p className="mt-2 text-sm leading-relaxed text-white/55">När matcher är låsta och resultat finns visas poängen här.</p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="glass w-full min-w-0 max-w-full overflow-hidden rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Dagens poäng</p>
-          <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">{selectedDay.date}</h2>
-        </div>
-        <div className="shrink-0 rounded-2xl bg-volt/10 px-4 py-2 text-right">
-          <p className="font-display text-2xl font-black text-volt">{selectedDay.dayPoints}</p>
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">poäng</p>
-        </div>
-      </div>
-
-      {scoredDays.length > 1 && (
-        <label className="mt-4 block">
-          <span className="sr-only">Välj matchdag</span>
-          <select
-            value={selectedDay.dateKey}
-            onChange={(event) => setSelectedDate(event.target.value)}
-            className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-volt"
-          >
-            {scoredDays.map((day) => (
-              <option key={day.dateKey} value={day.dateKey} className="bg-pitch text-white">
-                {day.date} · {day.dayPoints}p
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      <div className="mt-4 space-y-2">
-        {selectedDay.matches.map((match) => (
-          <div key={match.id} className="min-w-0 rounded-2xl border border-white/10 bg-white/5 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <p className="min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">
-                {match.kickoffTime} · {match.stage}
-              </p>
-              <p className="shrink-0 rounded-full bg-white/10 px-2.5 py-1 text-xs font-black text-volt">+{match.points}p</p>
-            </div>
-            <div className="mt-2 grid min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-2 text-sm font-bold">
-              <span className="min-w-0 truncate"><TeamLabel team={match.home} /></span>
-              <span className="text-white/35">-</span>
-              <span className="min-w-0 truncate text-right"><TeamLabel team={match.away} /></span>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2 text-xs text-white/55">
-              <span className="rounded-full bg-white/5 px-2.5 py-1">Tips: {formatScoreLine(match.predictedScore)}</span>
-              <span className="rounded-full bg-white/5 px-2.5 py-1">Resultat: {formatScoreLine(match.actualScore)}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function DailyPointsCard({ dailyScoreData, onOpenStats }: { dailyScoreData: DailyScoreDay[]; onOpenStats: () => void }) {
   const todayKey = getSwedishDateKey();
   const todayMatches = getMatchesByDate(todayKey);
@@ -2526,8 +2583,10 @@ function RulesPanel() {
     ["Världsmästare", "15 poäng"],
     ["Skytteligavinnare", "10 poäng"],
     ["Flest mål i gruppspel (lag)", "8 poäng"],
+    ["Flest kort i gruppspelet (lag)", "5 poäng"],
     ["Närmast totalt antal mål i turneringen", "8 poäng"],
     ["Bästa poänggörare i turneringen", "8 poäng"],
+    ["Tar sig till kvartsfinal (darkhorse)", "8 poäng"],
     ["Största segermarginalen i en match", "5 poäng"],
   ];
   const ruleSection = (title: string, rows: Array<[string, string | string[]]>) => (
@@ -2886,15 +2945,31 @@ function PredictionsPanel({
                 <span className="text-sm font-bold leading-relaxed text-white/60">
                   {question.label} · {question.points}
                 </span>
-                <input
-                  type={question.type ?? "text"}
-                  min={question.type === "number" ? 0 : undefined}
-                  value={bonusAnswers[question.key] ?? ""}
-                  disabled={bonusLocked}
-                  onChange={(event) => onBonusChange(question.key, event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 outline-none focus:border-cyan disabled:cursor-not-allowed disabled:opacity-45"
-                  placeholder={question.placeholder ?? "Ditt svar"}
-                />
+                {question.playerInput === "select" ? (
+                  <select
+                    value={bonusAnswers[question.key] ?? ""}
+                    disabled={bonusLocked}
+                    onChange={(event) => onBonusChange(question.key, event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 outline-none focus:border-cyan disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <option value="">{question.placeholder ?? "Välj"}</option>
+                    {question.options?.map((team) => (
+                      <option key={team} value={team}>
+                        {team}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type={question.type ?? "text"}
+                    min={question.type === "number" ? 0 : undefined}
+                    value={bonusAnswers[question.key] ?? ""}
+                    disabled={bonusLocked}
+                    onChange={(event) => onBonusChange(question.key, event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 outline-none focus:border-cyan disabled:cursor-not-allowed disabled:opacity-45"
+                    placeholder={question.placeholder ?? "Ditt svar"}
+                  />
+                )}
               </label>
             ))}
           </div>
@@ -3607,6 +3682,8 @@ function AdminPanel({
   openProfileAsAdmin,
   resetProfilePassword,
   randomizeDevData,
+  randomizeResultsAndLockOnly,
+  resetResultsAndLocksOnly,
   resetDevData,
   openWinnersModal,
   lockedDates,
@@ -3633,6 +3710,8 @@ function AdminPanel({
   openProfileAsAdmin: (profile: PlayerProfile) => void;
   resetProfilePassword: (profileId: string) => void;
   randomizeDevData: () => void;
+  randomizeResultsAndLockOnly: () => void;
+  resetResultsAndLocksOnly: () => void;
   resetDevData: () => void;
   openWinnersModal: () => void;
   lockedDates: string[];
@@ -3814,7 +3893,7 @@ function AdminPanel({
           <Trophy className="text-flare" />
           <h3 className="mt-3 font-display text-xl font-black">Bonusfacit</h3>
           <p className="mt-2 text-sm text-white/60">
-            Fyll i slutligt facit. Bonus ger max 54 poäng och räknas om direkt.
+            Fyll i slutligt facit. Bonus ger max 67 poäng och räknas om direkt.
           </p>
           <div className="mt-5 space-y-3">
             {bonusFieldLabels.map((question) => (
@@ -3973,8 +4052,20 @@ function AdminPanel({
         <div className="glass rounded-[1.5rem] border-coral/20 p-4 sm:rounded-[2rem] sm:p-6">
           <Sparkles className="text-coral" />
           <h3 className="mt-3 font-display text-xl font-black">Utvecklarverktyg</h3>
-          <p className="mt-2 text-sm text-white/60">Endast för test: fyller tips/resultat och låsningar eller nollställer allt.</p>
+          <p className="mt-2 text-sm text-white/60">Endast för test: lås matcher med slumpade resultat eller fyll all testdata.</p>
           <div className="mt-4 grid gap-2">
+            <button
+              onClick={randomizeResultsAndLockOnly}
+              className="rounded-2xl bg-cyan/90 px-4 py-3 font-display font-black text-pitch transition hover:brightness-110"
+            >
+              Slumpa resultat och lås
+            </button>
+            <button
+              onClick={resetResultsAndLocksOnly}
+              className="rounded-2xl bg-white/10 px-4 py-3 font-display font-black text-white/70 transition hover:bg-white/15"
+            >
+              Nolla resultat och låsningar
+            </button>
             <button
               onClick={randomizeDevData}
               className="rounded-2xl bg-coral px-4 py-3 font-display font-black text-white transition hover:brightness-110"
@@ -4189,7 +4280,180 @@ function SkeletonLine({ className }: { className?: string }) {
   );
 }
 
-function StatsPanel({ leaderboardRows, dailyScoreData }: { leaderboardRows: UserScore[]; dailyScoreData: DailyScoreDay[] }) {
+function PlayerDailyBreakdown({
+  profiles,
+  currentProfileId,
+  activePredictions,
+  storedPredictions,
+  results,
+  lockedDates,
+  lockedMatchIds,
+  resultWinners,
+}: {
+  profiles: PlayerProfile[];
+  currentProfileId?: string;
+  activePredictions: Prediction[];
+  storedPredictions: Record<string, Prediction[]>;
+  results: Record<number, ScoreLine>;
+  lockedDates: string[];
+  lockedMatchIds: number[];
+  resultWinners: Record<number, string>;
+}) {
+  const playerProfiles = profiles.filter((profile) => profile.role === "player");
+  const [selectedPlayerId, setSelectedPlayerId] = useState(currentProfileId ?? playerProfiles[0]?.id ?? "");
+  const selectedProfile = playerProfiles.find((profile) => profile.id === selectedPlayerId) ?? playerProfiles[0];
+  const selectedPredictions = selectedProfile
+    ? loadProfilePredictions(selectedProfile.id, currentProfileId, activePredictions, storedPredictions)
+    : defaultPredictions;
+  const selectedDailyScoreData = useMemo(
+    () => buildDailyScoreData(selectedPredictions, results, lockedDates, resultWinners, lockedMatchIds),
+    [lockedDates, lockedMatchIds, resultWinners, results, selectedPredictions],
+  );
+  const scoredDays = selectedDailyScoreData.filter((day) => day.matches.length > 0);
+  const todayKey = getSwedishDateKey();
+  const preferredDay = scoredDays.find((day) => day.dateKey === todayKey) ?? scoredDays[scoredDays.length - 1];
+  const [selectedDate, setSelectedDate] = useState(preferredDay?.dateKey ?? "");
+  const selectedDay = scoredDays.find((day) => day.dateKey === selectedDate) ?? preferredDay;
+
+  useEffect(() => {
+    if (!selectedProfile) return;
+    if (selectedPlayerId !== selectedProfile.id) setSelectedPlayerId(selectedProfile.id);
+  }, [selectedPlayerId, selectedProfile]);
+
+  useEffect(() => {
+    if (!preferredDay) {
+      if (selectedDate) setSelectedDate("");
+      return;
+    }
+    if (!scoredDays.some((day) => day.dateKey === selectedDate)) {
+      setSelectedDate(preferredDay.dateKey);
+    }
+  }, [preferredDay, scoredDays, selectedDate]);
+
+  if (playerProfiles.length === 0) {
+    return (
+      <section className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5 lg:col-span-2">
+        <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Matchdetaljer</p>
+        <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">Inga spelare ännu</h2>
+      </section>
+    );
+  }
+
+  return (
+    <section className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-5 lg:col-span-2">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Matchdetaljer</p>
+          <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">Tips, utfall och poäng</h2>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[32rem]">
+          <label className="block">
+            <span className="text-xs font-bold uppercase tracking-[0.18em] text-white/45">Spelare</span>
+            <select
+              value={selectedProfile?.id ?? ""}
+              onChange={(event) => setSelectedPlayerId(event.target.value)}
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-volt"
+            >
+              {playerProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id} className="bg-pitch text-white">
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs font-bold uppercase tracking-[0.18em] text-white/45">Datum</span>
+            <select
+              value={selectedDay?.dateKey ?? ""}
+              onChange={(event) => setSelectedDate(event.target.value)}
+              disabled={scoredDays.length === 0}
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-volt disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {scoredDays.length === 0 ? (
+                <option value="" className="bg-pitch text-white">
+                  Ingen avräkning än
+                </option>
+              ) : (
+                scoredDays.map((day) => (
+                  <option key={day.dateKey} value={day.dateKey} className="bg-pitch text-white">
+                    {day.date} · {day.dayPoints}p
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+        </div>
+      </div>
+
+      {!selectedDay ? (
+        <p className="mt-5 rounded-2xl bg-white/5 px-4 py-3 text-sm text-white/55">När matcher är låsta och resultat finns visas spelarens tips här.</p>
+      ) : (
+        <>
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-black/20 p-4">
+            <div>
+              <p className="text-sm text-white/50">{selectedProfile?.name}</p>
+              <p className="font-display text-2xl font-black">{selectedDay.date}</p>
+            </div>
+            <div className="rounded-2xl bg-volt/10 px-4 py-2 text-right">
+              <p className="font-display text-2xl font-black text-volt">{selectedDay.dayPoints}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">poäng denna dag</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3">
+            {selectedDay.matches.map((match) => (
+              <div key={match.id} className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/40">
+                    #{match.id} · {match.kickoffTime} · {match.stage}
+                  </p>
+                  <p className="rounded-full bg-volt/10 px-3 py-1 text-sm font-black text-volt">+{match.points}p</p>
+                </div>
+                <div className="mt-3 grid min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-3 font-display text-lg font-black">
+                  <span className="min-w-0 truncate"><TeamLabel team={match.home} /></span>
+                  <span className="text-white/35">-</span>
+                  <span className="min-w-0 truncate text-right"><TeamLabel team={match.away} /></span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/60">
+                  <span className="rounded-full bg-white/5 px-3 py-1">Tips: {formatScoreLine(match.predictedScore)}</span>
+                  <span className="rounded-full bg-white/5 px-3 py-1">Utfall: {formatScoreLine(match.actualScore)}</span>
+                  {match.stage !== "Gruppspel" ? (
+                    <>
+                      <span className="rounded-full bg-white/5 px-3 py-1">Tippat vidare: {match.predictedWinner ?? "-"}</span>
+                      <span className="rounded-full bg-white/5 px-3 py-1">Vidare: {match.actualWinner ?? "-"}</span>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function StatsPanel({
+  leaderboardRows,
+  profiles,
+  currentProfileId,
+  activePredictions,
+  storedPredictions,
+  results,
+  lockedDates,
+  lockedMatchIds,
+  resultWinners,
+}: {
+  leaderboardRows: UserScore[];
+  profiles: PlayerProfile[];
+  currentProfileId?: string;
+  activePredictions: Prediction[];
+  storedPredictions: Record<string, Prediction[]>;
+  results: Record<number, ScoreLine>;
+  lockedDates: string[];
+  lockedMatchIds: number[];
+  resultWinners: Record<number, string>;
+}) {
   const [expandedChart, setExpandedChart] = useState(false);
   const [chartAnimationKey, setChartAnimationKey] = useState(0);
   const [visiblePlayerIds, setVisiblePlayerIds] = useState<string[]>(() => leaderboardRows.map((user) => user.id));
@@ -4284,9 +4548,16 @@ function StatsPanel({ leaderboardRows, dailyScoreData }: { leaderboardRows: User
 
   return (
     <div className="grid gap-4 lg:grid-cols-2 lg:gap-4">
-      <div className="lg:col-span-2">
-        <DailyPointsSummary dailyScoreData={dailyScoreData} />
-      </div>
+      <PlayerDailyBreakdown
+        profiles={profiles}
+        currentProfileId={currentProfileId}
+        activePredictions={activePredictions}
+        storedPredictions={storedPredictions}
+        results={results}
+        lockedDates={lockedDates}
+        lockedMatchIds={lockedMatchIds}
+        resultWinners={resultWinners}
+      />
       <section className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-4 lg:col-span-2">
         <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex items-center gap-3">
