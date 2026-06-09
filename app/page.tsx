@@ -88,7 +88,7 @@ const bonusFieldLabels: Array<{ key: keyof BonusPrediction; label: string; point
   { key: "topScorer", label: "Skytteligavinnare", points: "10p" },
   { key: "mostGroupGoals", label: "Flest mål i gruppspel (lag)", points: "8p", placeholder: "Ex. USA" },
   { key: "totalTournamentGoals", label: "Närmast totalt antal mål i turneringen", points: "8p", type: "number" },
-  { key: "firstHostEliminated", label: "Värdnation som åker ut först", points: "8p", placeholder: "Ex. Mexiko" },
+  { key: "firstHostEliminated", label: "Bästa poänggörare i turneringen", points: "8p", placeholder: "Ditt svar" },
   { key: "biggestWinMargin", label: "Största segermarginalen i en match", points: "5p", type: "number" },
 ];
 
@@ -2524,7 +2524,7 @@ function RulesPanel() {
     ["Skytteligavinnare", "10 poäng"],
     ["Flest mål i gruppspel (lag)", "8 poäng"],
     ["Närmast totalt antal mål i turneringen", "8 poäng"],
-    ["Värdnation som åker ut först", "8 poäng"],
+    ["Bästa poänggörare i turneringen", "8 poäng"],
     ["Största segermarginalen i en match", "5 poäng"],
   ];
   const ruleSection = (title: string, rows: Array<[string, string | string[]]>) => (
