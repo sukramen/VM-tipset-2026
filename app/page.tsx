@@ -125,7 +125,7 @@ const bonusFieldLabels: BonusFieldLabel[] = [
   { key: "firstHostEliminated", label: "Bästa poänggörare i turneringen", points: "8p", placeholder: "Ditt svar" },
   {
     key: "darkhorseQuarterfinalist",
-    label: "Tar sig till kvartsfinal (darkhorse)",
+    label: "Tar sig längst (darkhorse)",
     points: "8p",
     playerInput: "select",
     options: darkhorseTeamOptions,
@@ -2586,7 +2586,7 @@ function RulesPanel() {
     ["Flest kort i gruppspelet (lag)", "5 poäng"],
     ["Närmast totalt antal mål i turneringen", "8 poäng"],
     ["Bästa poänggörare i turneringen", "8 poäng"],
-    ["Tar sig till kvartsfinal (darkhorse)", "8 poäng"],
+    ["Tar sig längst (darkhorse)", "8 poäng"],
     ["Största segermarginalen i en match", "5 poäng"],
   ];
   const ruleSection = (title: string, rows: Array<[string, string | string[]]>) => (
