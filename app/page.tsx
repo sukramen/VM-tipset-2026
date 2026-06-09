@@ -4344,7 +4344,7 @@ function PlayerDailyBreakdown({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-volt sm:text-sm sm:tracking-[0.3em]">Matchdetaljer</p>
-          <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">Tips, utfall och poäng</h2>
+          <h2 className="mt-2 font-display text-xl font-black sm:text-2xl">Poäng per dag</h2>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[32rem]">
           <label className="block">
