@@ -1568,7 +1568,7 @@ export default function Home() {
   function saveCurrentPredictions() {
     if (!currentProfile) return;
     if (storageMode === "supabase") {
-      savePredictionsToDb(currentProfile.id, predictions, { allowEmptyScores: true })
+      savePredictionsToDb(currentProfile.id, predictions)
         .then(() => refreshProfilePredictions(currentProfile.id, { forceApply: true }))
         .then(() => {
           window.alert("Tipset är sparat.");
