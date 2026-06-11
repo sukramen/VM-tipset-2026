@@ -1395,10 +1395,12 @@ export default function Home() {
         const payload = (await response.json()) as MatchSyncPayload;
         if (cancelled) return;
 
+        Object.keys(payload.results).forEach((matchId) => markResultDirty(Number(matchId)));
         setLockedMatchIds((current) => uniqueSortedNumbers([...current, ...payload.lockedMatchIds]));
         setResults((current) => ({ ...current, ...payload.results }));
         setResultWinners((current) => ({ ...current, ...payload.resultWinners }));
-        setMatchSyncMessage(payload.ok ? `Synkat ${new Date(payload.syncedAt).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}` : payload.message ?? "");
+        const syncTime = new Date(payload.syncedAt).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
+        setMatchSyncMessage(payload.ok ? payload.message ?? `Synkat ${syncTime}` : payload.message ?? "");
       } catch (error) {
         if (!cancelled) {
           setMatchSyncMessage("Kunde inte synka matchresultat just nu.");

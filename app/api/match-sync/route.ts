@@ -2,27 +2,35 @@ import { NextResponse } from "next/server";
 import { findFixtureByApiTeams, getStartedMatchIds, teamsMatch, type MatchSyncPayload } from "@/lib/match-sync";
 import type { ScoreLine } from "@/lib/types";
 
-type ApiFootballFixture = {
-  fixture: {
-    date: string;
-    status: {
-      short: string;
+type FootballDataTeam = {
+  name?: string | null;
+  shortName?: string | null;
+  tla?: string | null;
+};
+
+type FootballDataMatch = {
+  utcDate: string;
+  status: string;
+  homeTeam: FootballDataTeam;
+  awayTeam: FootballDataTeam;
+  score: {
+    winner?: "HOME_TEAM" | "AWAY_TEAM" | "DRAW" | null;
+    fullTime?: {
+      home: number | null;
+      away: number | null;
     };
-  };
-  teams: {
-    home: { name: string; winner: boolean | null };
-    away: { name: string; winner: boolean | null };
-  };
-  goals: {
-    home: number | null;
-    away: number | null;
   };
 };
 
-type ApiFootballResponse = {
-  response?: ApiFootballFixture[];
-  errors?: unknown;
+type FootballDataResponse = {
+  matches?: FootballDataMatch[];
+  message?: string;
+  errorCode?: number;
 };
+
+type FootballDataFetchResult =
+  | { matches: FootballDataMatch[] }
+  | { error: string; status?: number };
 
 type MatchSyncFixture = {
   id: number;
@@ -32,59 +40,120 @@ type MatchSyncFixture = {
   stage: string;
 };
 
-const finalStatuses = new Set(["FT", "AET", "PEN"]);
-const apiFootballUrl = "https://v3.football.api-sports.io/fixtures";
+const finalStatuses = new Set(["FINISHED"]);
+const footballDataBaseUrl = "https://api.football-data.org/v4/competitions";
 const cacheTtlMs = 60_000;
 
-let cachedPayload: MatchSyncPayload | undefined;
+let cachedMatches: FootballDataMatch[] | undefined;
 let cachedAt = 0;
+
+const stockholmDateFormatter = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Europe/Stockholm",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function emptyPayload(ok: boolean, message: string, status?: number) {
+  return NextResponse.json(
+    {
+      ok,
+      syncedAt: new Date().toISOString(),
+      lockedMatchIds: getStartedMatchIds(),
+      results: {},
+      resultWinners: {},
+      message,
+    } satisfies MatchSyncPayload,
+    status ? { status } : undefined,
+  );
+}
+
+function isFootballDataError(result: FootballDataFetchResult): result is Extract<FootballDataFetchResult, { error: string }> {
+  return "error" in result;
+}
 
 function mergeUniqueNumbers(...lists: number[][]) {
   return [...new Set(lists.flat())].sort((a, b) => a - b);
 }
 
-function findFixture(fixturesToMatch: MatchSyncFixture[] | undefined, date: string, homeTeam: string, awayTeam: string) {
+function getStockholmDate(utcDate: string) {
+  const parsedDate = new Date(utcDate);
+  if (Number.isNaN(parsedDate.getTime())) return utcDate.slice(0, 10);
+  return stockholmDateFormatter.format(parsedDate);
+}
+
+function getTeamNames(team: FootballDataTeam) {
+  return [team.name, team.shortName, team.tla].filter((value): value is string => Boolean(value?.trim()));
+}
+
+function fixtureMatchesApiTeams(fixture: MatchSyncFixture, homeTeamNames: string[], awayTeamNames: string[]) {
+  return homeTeamNames.some((homeTeam) =>
+    awayTeamNames.some(
+      (awayTeam) =>
+        (teamsMatch(fixture.home, homeTeam) && teamsMatch(fixture.away, awayTeam)) ||
+        (teamsMatch(fixture.home, awayTeam) && teamsMatch(fixture.away, homeTeam)),
+    ),
+  );
+}
+
+function findFixture(
+  fixturesToMatch: MatchSyncFixture[] | undefined,
+  date: string,
+  homeTeamNames: string[],
+  awayTeamNames: string[],
+) {
+  if (homeTeamNames.length === 0 || awayTeamNames.length === 0) return undefined;
   return (
     fixturesToMatch?.find(
       (fixture) =>
         fixture.date === date &&
-        ((teamsMatch(fixture.home, homeTeam) && teamsMatch(fixture.away, awayTeam)) ||
-          (teamsMatch(fixture.home, awayTeam) && teamsMatch(fixture.away, homeTeam))),
-    ) ?? findFixtureByApiTeams(date, homeTeam, awayTeam)
+        fixtureMatchesApiTeams(fixture, homeTeamNames, awayTeamNames),
+    ) ??
+    homeTeamNames
+      .flatMap((homeTeam) => awayTeamNames.map((awayTeam) => findFixtureByApiTeams(date, homeTeam, awayTeam)))
+      .find(Boolean)
   );
 }
 
-function toPayloadFromFixtures(apiFixtures: ApiFootballFixture[], fixturesToMatch?: MatchSyncFixture[]): MatchSyncPayload {
+function toPayloadFromMatches(apiMatches: FootballDataMatch[], fixturesToMatch?: MatchSyncFixture[]): MatchSyncPayload {
   const results: Record<number, ScoreLine> = {};
   const resultWinners: Record<number, string> = {};
   const finalMatchIds: number[] = [];
 
-  for (const apiFixture of apiFixtures) {
-    const date = apiFixture.fixture.date.slice(0, 10);
-    const localFixture = findFixture(fixturesToMatch, date, apiFixture.teams.home.name, apiFixture.teams.away.name);
+  for (const apiMatch of apiMatches) {
+    const date = getStockholmDate(apiMatch.utcDate);
+    const homeTeamNames = getTeamNames(apiMatch.homeTeam);
+    const awayTeamNames = getTeamNames(apiMatch.awayTeam);
+    const localFixture = findFixture(fixturesToMatch, date, homeTeamNames, awayTeamNames);
     if (!localFixture) continue;
 
-    if (!finalStatuses.has(apiFixture.fixture.status.short)) continue;
-    if (apiFixture.goals.home === null || apiFixture.goals.away === null) continue;
+    if (!finalStatuses.has(apiMatch.status)) continue;
+
+    const homeScore = apiMatch.score.fullTime?.home;
+    const awayScore = apiMatch.score.fullTime?.away;
+    if (homeScore === null || homeScore === undefined || awayScore === null || awayScore === undefined) continue;
 
     const apiOrderMatchesLocal =
-      teamsMatch(localFixture.home, apiFixture.teams.home.name) && teamsMatch(localFixture.away, apiFixture.teams.away.name);
+      homeTeamNames.some((homeTeam) => teamsMatch(localFixture.home, homeTeam)) &&
+      awayTeamNames.some((awayTeam) => teamsMatch(localFixture.away, awayTeam));
     results[localFixture.id] = apiOrderMatchesLocal
       ? {
-          home: apiFixture.goals.home,
-          away: apiFixture.goals.away,
+          home: homeScore,
+          away: awayScore,
         }
       : {
-          home: apiFixture.goals.away,
-          away: apiFixture.goals.home,
+          home: awayScore,
+          away: homeScore,
         };
     finalMatchIds.push(localFixture.id);
 
     if (localFixture.stage !== "Gruppspel") {
-      if (apiFixture.teams.home.winner === true) resultWinners[localFixture.id] = apiOrderMatchesLocal ? localFixture.home : localFixture.away;
-      if (apiFixture.teams.away.winner === true) resultWinners[localFixture.id] = apiOrderMatchesLocal ? localFixture.away : localFixture.home;
+      if (apiMatch.score.winner === "HOME_TEAM") resultWinners[localFixture.id] = apiOrderMatchesLocal ? localFixture.home : localFixture.away;
+      if (apiMatch.score.winner === "AWAY_TEAM") resultWinners[localFixture.id] = apiOrderMatchesLocal ? localFixture.away : localFixture.home;
     }
   }
+
+  const resultCount = Object.keys(results).length;
 
   return {
     ok: true,
@@ -92,62 +161,64 @@ function toPayloadFromFixtures(apiFixtures: ApiFootballFixture[], fixturesToMatc
     lockedMatchIds: mergeUniqueNumbers(getStartedMatchIds(), finalMatchIds),
     results,
     resultWinners,
+    message: resultCount > 0 ? `Synkat ${resultCount} färdiga resultat.` : "Inga färdiga API-resultat att spara ännu.",
   };
 }
 
-async function syncFixtures(fixturesToMatch?: MatchSyncFixture[]) {
+async function getFootballDataMatches(): Promise<FootballDataFetchResult> {
   const now = Date.now();
-  if (!fixturesToMatch && cachedPayload && now - cachedAt < cacheTtlMs) {
-    return NextResponse.json(cachedPayload);
+  if (cachedMatches && now - cachedAt < cacheTtlMs) {
+    return { matches: cachedMatches };
   }
 
-  const apiKey = process.env.API_FOOTBALL_KEY?.trim();
+  const apiKey = process.env.FOOTBALL_DATA_API_KEY?.trim();
   if (!apiKey) {
-    return NextResponse.json({
-      ok: false,
-      syncedAt: new Date().toISOString(),
-      lockedMatchIds: getStartedMatchIds(),
-      results: {},
-      resultWinners: {},
-      message: "API_FOOTBALL_KEY saknas. Matchstart låses lokalt, men resultat hämtas inte.",
-    } satisfies MatchSyncPayload);
+    return { error: "FOOTBALL_DATA_API_KEY saknas. Matchstart låses lokalt, men resultat hämtas inte." };
   }
 
-  const url = new URL(apiFootballUrl);
-  url.searchParams.set("league", process.env.API_FOOTBALL_WORLD_CUP_LEAGUE_ID?.trim() || "1");
-  url.searchParams.set("season", process.env.API_FOOTBALL_WORLD_CUP_SEASON?.trim() || "2026");
-  url.searchParams.set("from", "2026-06-11");
-  url.searchParams.set("to", "2026-07-19");
-  url.searchParams.set("timezone", "Europe/Stockholm");
+  const competition = process.env.FOOTBALL_DATA_COMPETITION?.trim() || "WC";
+  const season = process.env.FOOTBALL_DATA_SEASON?.trim() || "2026";
+  const url = new URL(`${footballDataBaseUrl}/${encodeURIComponent(competition)}/matches`);
+  url.searchParams.set("season", season);
 
   const response = await fetch(url, {
     headers: {
-      "x-apisports-key": apiKey,
+      "X-Auth-Token": apiKey,
     },
     next: { revalidate: 60 },
   });
 
+  const data = (await response.json().catch(() => ({}))) as FootballDataResponse;
   if (!response.ok) {
-    return NextResponse.json(
-      {
-        ok: false,
-        syncedAt: new Date().toISOString(),
-        lockedMatchIds: getStartedMatchIds(),
-        results: {},
-        resultWinners: {},
-        message: `API-FOOTBALL svarade ${response.status}.`,
-      } satisfies MatchSyncPayload,
-      { status: 502 },
-    );
+    const message = data.message ? `football-data.org svarade ${response.status}: ${data.message}` : `football-data.org svarade ${response.status}.`;
+    return { error: message, status: 502 };
   }
 
-  const data = (await response.json()) as ApiFootballResponse;
-  const payload = toPayloadFromFixtures(data.response ?? [], fixturesToMatch);
-  if (!fixturesToMatch) {
-    cachedPayload = payload;
-    cachedAt = now;
+  if (data.message || data.errorCode) {
+    return { error: data.message ?? `football-data.org returnerade felkod ${data.errorCode}.`, status: 502 };
   }
 
+  if (!Array.isArray(data.matches)) {
+    return { error: "football-data.org returnerade inget matchfält.", status: 502 };
+  }
+
+  if (data.matches.length === 0) {
+    return { error: `football-data.org returnerade 0 matcher för ${competition} ${season}.`, status: 502 };
+  }
+
+  cachedMatches = data.matches;
+  cachedAt = now;
+
+  return { matches: data.matches };
+}
+
+async function syncFixtures(fixturesToMatch?: MatchSyncFixture[]) {
+  const footballData = await getFootballDataMatches();
+  if (isFootballDataError(footballData)) {
+    return emptyPayload(false, footballData.error, footballData.status);
+  }
+
+  const payload = toPayloadFromMatches(footballData.matches, fixturesToMatch);
   return NextResponse.json(payload);
 }
 
