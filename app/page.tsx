@@ -986,17 +986,6 @@ function mergeProfilePredictionsWithDefaults(savedPredictions: Prediction[]) {
   return [...savedPredictions, ...missingDefaults];
 }
 
-async function backfillMissingDefaultPredictions(profiles: PlayerProfile[], dbPredictions: Record<string, Prediction[]>) {
-  await Promise.all(
-    profiles.map((profile) => {
-      const savedMatchIds = new Set((dbPredictions[profile.id] ?? []).map((prediction) => prediction.matchId));
-      const missingDefaults = defaultPredictions.filter((prediction) => !savedMatchIds.has(prediction.matchId));
-      if (missingDefaults.length === 0) return Promise.resolve();
-      return savePredictionsToDb(profile.id, missingDefaults, { allowEmptyScores: true });
-    }),
-  );
-}
-
 async function loadSupabaseSnapshot(): Promise<SupabaseSnapshot> {
   const [dbProfiles, dbPredictions, dbBonus, dbResults, dbLockedDates, dbLockedMatchIds, dbOfficialBonus] = await Promise.all([
     loadProfilesFromDb(),
@@ -1010,10 +999,6 @@ async function loadSupabaseSnapshot(): Promise<SupabaseSnapshot> {
 
   const profiles = dbProfiles.length > 0 ? dbProfiles : starterProfiles;
   if (dbProfiles.length === 0) await saveProfilesToDb(starterProfiles);
-
-  void backfillMissingDefaultPredictions(profiles, dbPredictions).catch((error) =>
-    logStorageError("Kunde inte skapa saknade standardtips.", error),
-  );
 
   return {
     profiles,
@@ -1742,7 +1727,6 @@ export default function Home() {
 
     profiles.forEach((profile) => {
       if (storageMode === "supabase") {
-        savePredictionsToDb(profile.id, defaultPredictions, { allowEmptyScores: true }).catch((error) => logStorageError("Kunde inte nollställa tips.", error));
         saveBonusToDb(profile.id, defaultBonusAnswers).catch((error) => logStorageError("Kunde inte nollställa bonus.", error));
       } else {
         window.localStorage.setItem(`vm-tipset-predictions-${profile.id}`, JSON.stringify(defaultPredictions));
@@ -1851,12 +1835,7 @@ export default function Home() {
     setAllBonusByProfile((current) => ({ ...current, [profile.id]: defaultBonusAnswers }));
     if (storageMode === "supabase") {
       saveProfilesToDb([...profiles, profile])
-        .then(() =>
-          Promise.all([
-            savePredictionsToDb(profile.id, defaultPredictions, { allowEmptyScores: true }),
-            saveBonusToDb(profile.id, defaultBonusAnswers),
-          ]),
-        )
+        .then(() => saveBonusToDb(profile.id, defaultBonusAnswers))
         .catch((error) => logStorageError("Kunde inte skapa spelare.", error));
     }
     setCurrentProfile(profile);

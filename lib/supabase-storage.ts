@@ -163,15 +163,15 @@ export async function loadAllPredictionsFromDb() {
   }, {});
 }
 
-export async function savePredictionsToDb(profileId: string, predictions: Prediction[], options: { allowEmptyScores?: boolean } = {}) {
+export async function savePredictionsToDb(profileId: string, predictions: Prediction[]) {
   if (!supabase) return;
   const rows = predictions
-    .filter((prediction) => options.allowEmptyScores || prediction.score)
+    .filter((prediction) => prediction.score)
     .map((prediction) => ({
       profile_id: profileId,
       match_id: prediction.matchId,
-      home_score: prediction.score?.home ?? null,
-      away_score: prediction.score?.away ?? null,
+      home_score: prediction.score!.home,
+      away_score: prediction.score!.away,
       winner: prediction.winner ?? null,
     }));
   if (rows.length === 0) return;
