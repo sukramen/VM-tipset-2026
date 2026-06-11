@@ -52,8 +52,6 @@ import type { BonusPrediction, Fixture, GroupLetter, MatchStage, PlayerProfile, 
 
 const tabs = ["Hem", "Tippa", "Grupper", "Slutspel", "Andras tips", "Admin", "Statistik"] as const;
 type Tab = (typeof tabs)[number];
-type SaveState = "idle" | "saving" | "saved" | "error";
-type SaveStatus = { state: SaveState; message: string };
 
 const stageOrder: MatchStage[] = ["Sextondelsfinal", "Åttondelsfinal", "Kvartsfinal", "Semifinal", "Bronsmatch", "Final"];
 const adminStageOrder: MatchStage[] = ["Gruppspel", ...stageOrder];
@@ -962,10 +960,6 @@ function updateBonusValue(current: BonusPrediction, key: keyof BonusPrediction, 
   return { ...current, [key]: value };
 }
 
-function formatSaveTime(date = new Date()) {
-  return date.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("Hem");
   const [predictions, setPredictions] = useState<Prediction[]>(defaultPredictions);
@@ -993,7 +987,6 @@ export default function Home() {
   const [allBonusByProfile, setAllBonusByProfile] = useState<Record<string, BonusPrediction>>({});
   const [isDatabaseLoaded, setIsDatabaseLoaded] = useState(false);
   const [storageMode, setStorageMode] = useState<"supabase" | "local">(isSupabaseEnabled ? "supabase" : "local");
-  const [tipSaveStatus, setTipSaveStatus] = useState<SaveStatus>({ state: "idle", message: "" });
   const allPredictionsRef = useRef<Record<string, Prediction[]>>({});
   const allBonusRef = useRef<Record<string, BonusPrediction>>({});
   const resultsRef = useRef<Record<number, ScoreLine>>({});
@@ -1001,25 +994,6 @@ export default function Home() {
   const lockedDatesRef = useRef<string[]>([]);
   const lockedMatchIdsRef = useRef<number[]>([]);
   const lastMatchSyncAtRef = useRef(0);
-  const tipSaveRequestIdRef = useRef(0);
-
-  function beginTipSave(message: string) {
-    const requestId = tipSaveRequestIdRef.current + 1;
-    tipSaveRequestIdRef.current = requestId;
-    setTipSaveStatus({ state: "saving", message });
-    return requestId;
-  }
-
-  function finishTipSave(requestId: number) {
-    if (tipSaveRequestIdRef.current !== requestId) return;
-    setTipSaveStatus({ state: "saved", message: `Sparat ${formatSaveTime()}` });
-  }
-
-  function failTipSave(requestId: number, message: string, error: unknown) {
-    logStorageError(message, error);
-    if (tipSaveRequestIdRef.current !== requestId) return;
-    setTipSaveStatus({ state: "error", message });
-  }
 
   useEffect(() => {
     allPredictionsRef.current = allPredictionsByProfile;
@@ -1159,40 +1133,24 @@ export default function Home() {
     if (!currentProfile || !isDatabaseLoaded) return;
     if (loadedProfileId !== currentProfile.id) return;
     setAllPredictionsByProfile((current) => ({ ...current, [currentProfile.id]: predictions }));
-    const saveRequestId = beginTipSave("Sparar tips...");
     if (storageMode === "supabase") {
-      savePredictionsToDb(currentProfile.id, predictions)
-        .then(() => finishTipSave(saveRequestId))
-        .catch((error) => failTipSave(saveRequestId, "Kunde inte spara tips.", error));
+      savePredictionsToDb(currentProfile.id, predictions).catch((error) => logStorageError("Kunde inte spara tips.", error));
       return;
     }
-    try {
-      window.localStorage.setItem(`vm-tipset-predictions-${currentProfile.id}`, JSON.stringify(predictions));
-      window.localStorage.setItem(`vm-tipset-predictions-version-${currentProfile.id}`, predictionsVersion);
-      finishTipSave(saveRequestId);
-    } catch (error) {
-      failTipSave(saveRequestId, "Kunde inte spara tips lokalt.", error);
-    }
+    window.localStorage.setItem(`vm-tipset-predictions-${currentProfile.id}`, JSON.stringify(predictions));
+    window.localStorage.setItem(`vm-tipset-predictions-version-${currentProfile.id}`, predictionsVersion);
   }, [currentProfile, isDatabaseLoaded, loadedProfileId, predictions, storageMode]);
 
   useEffect(() => {
     if (!currentProfile || !isDatabaseLoaded) return;
     if (loadedProfileId !== currentProfile.id) return;
     setAllBonusByProfile((current) => ({ ...current, [currentProfile.id]: bonusAnswers }));
-    const saveRequestId = beginTipSave("Sparar bonus...");
     if (storageMode === "supabase") {
-      saveBonusToDb(currentProfile.id, bonusAnswers)
-        .then(() => finishTipSave(saveRequestId))
-        .catch((error) => failTipSave(saveRequestId, "Kunde inte spara bonus.", error));
+      saveBonusToDb(currentProfile.id, bonusAnswers).catch((error) => logStorageError("Kunde inte spara bonus.", error));
       return;
     }
-    try {
-      window.localStorage.setItem(`vm-tipset-bonus-${currentProfile.id}`, JSON.stringify(bonusAnswers));
-      window.localStorage.setItem(`vm-tipset-bonus-version-${currentProfile.id}`, bonusVersion);
-      finishTipSave(saveRequestId);
-    } catch (error) {
-      failTipSave(saveRequestId, "Kunde inte spara bonus lokalt.", error);
-    }
+    window.localStorage.setItem(`vm-tipset-bonus-${currentProfile.id}`, JSON.stringify(bonusAnswers));
+    window.localStorage.setItem(`vm-tipset-bonus-version-${currentProfile.id}`, bonusVersion);
   }, [bonusAnswers, currentProfile, isDatabaseLoaded, loadedProfileId, storageMode]);
 
   useEffect(() => {
@@ -1906,7 +1864,6 @@ export default function Home() {
               lockedMatchIds={lockedMatchIds}
               bonusAnswers={bonusAnswers}
               bonusLocked={bonusLocked}
-              saveStatus={tipSaveStatus}
               onChange={updatePrediction}
               onWinnerChange={updatePredictionWinner}
               onBonusChange={updateBonusAnswer}
@@ -2760,23 +2717,6 @@ function RulesPanel() {
   );
 }
 
-function SaveStatusPill({ saveStatus }: { saveStatus: SaveStatus }) {
-  if (saveStatus.state === "idle") return null;
-
-  return (
-    <span
-      className={classNames(
-        "inline-flex items-center rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-[0.14em]",
-        saveStatus.state === "saving" && "bg-cyan/10 text-cyan",
-        saveStatus.state === "saved" && "bg-volt/10 text-volt",
-        saveStatus.state === "error" && "bg-coral/15 text-coral",
-      )}
-    >
-      {saveStatus.message}
-    </span>
-  );
-}
-
 function PredictionsPanel({
   predictions,
   actualResults,
@@ -2785,7 +2725,6 @@ function PredictionsPanel({
   lockedMatchIds,
   bonusAnswers,
   bonusLocked,
-  saveStatus,
   onChange,
   onWinnerChange,
   onBonusChange,
@@ -2798,7 +2737,6 @@ function PredictionsPanel({
   lockedMatchIds: number[];
   bonusAnswers: BonusPrediction;
   bonusLocked: boolean;
-  saveStatus: SaveStatus;
   onChange: (match: Fixture, side: "home" | "away", value: number) => void;
   onWinnerChange: (match: Fixture, winner: string) => void;
   onBonusChange: (key: keyof BonusPrediction, value: string) => void;
@@ -2847,13 +2785,8 @@ function PredictionsPanel({
   if (tipMode === "menu") {
     return (
       <section className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-8">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-volt sm:text-sm sm:tracking-[0.35em]">Mitt tips</p>
-            <h2 className="mt-2 font-display text-3xl font-black sm:text-4xl">Vad vill du tippa?</h2>
-          </div>
-          <SaveStatusPill saveStatus={saveStatus} />
-        </div>
+        <p className="text-xs uppercase tracking-[0.3em] text-volt sm:text-sm sm:tracking-[0.35em]">Mitt tips</p>
+        <h2 className="mt-2 font-display text-3xl font-black sm:text-4xl">Vad vill du tippa?</h2>
         <p className="mt-3 max-w-2xl text-white/60">
           Börja med gruppspelet eller gå vidare till slutspelsträdet. Du kan växla tillbaka hit när som helst via Tippa.
         </p>
@@ -2901,9 +2834,6 @@ function PredictionsPanel({
   if (tipMode === "knockout") {
     return (
       <div className="space-y-5">
-        <div className="flex justify-end">
-          <SaveStatusPill saveStatus={saveStatus} />
-        </div>
         <KnockoutPredictionPanel
           predictions={predictions}
           lockedDates={lockedDates}
@@ -2929,7 +2859,6 @@ function PredictionsPanel({
             <h2 className="font-display text-2xl font-black sm:text-3xl">Gruppspel</h2>
           </div>
           <div className="flex flex-wrap gap-2">
-            <SaveStatusPill saveStatus={saveStatus} />
             <button
               onClick={() => setTipMode("menu")}
               className="rounded-full bg-white/10 px-4 py-2 text-sm font-bold text-white/70 transition hover:bg-white/15 hover:text-white"
