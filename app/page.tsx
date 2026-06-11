@@ -1362,11 +1362,11 @@ export default function Home() {
   }, [activeTab, currentProfile?.id]);
 
   function updatePrediction(match: Fixture & Partial<ResolvedKnockoutFixture>, side: "home" | "away", value: number) {
-    if (isFixtureLocked(match, lockedDates, lockedMatchIds)) return;
-
     markPredictionDirty(match.id);
     setPredictions((current) => {
       const existingPrediction = current.find((prediction) => prediction.matchId === match.id);
+      if (isFixtureLocked(match, lockedDates, lockedMatchIds) && existingPrediction?.score) return current;
+
       const basePrediction: Prediction = existingPrediction ?? {
         matchId: match.id,
         winner: match.stage === "Gruppspel" ? "Ej tippat" : "Ej valt",
@@ -1393,10 +1393,11 @@ export default function Home() {
   }
 
   function updatePredictionWinner(match: Fixture, winner: string) {
-    if (isFixtureLocked(match, lockedDates, lockedMatchIds)) return;
-
     markPredictionDirty(match.id);
     setPredictions((current) => {
+      const existingPrediction = current.find((prediction) => prediction.matchId === match.id);
+      if (isFixtureLocked(match, lockedDates, lockedMatchIds) && existingPrediction?.score) return current;
+
       if (current.some((prediction) => prediction.matchId === match.id)) {
         return current.map((prediction) => (prediction.matchId === match.id ? { ...prediction, winner } : prediction));
       }
@@ -2930,6 +2931,8 @@ function PredictionsPanel({
                   {groupMatches.map((match) => {
                     const prediction = predictionMap.get(match.id);
                     const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
+                    const hasPredictionScore = Boolean(prediction?.score);
+                    const isInputDisabled = isLocked && hasPredictionScore;
                     return (
                       <div
                         key={match.id}
@@ -2950,14 +2953,14 @@ function PredictionsPanel({
                           <ScoreField
                             label={`${match.home} mål`}
                             value={prediction?.score?.home}
-                            disabled={isLocked}
+                            disabled={isInputDisabled}
                             onChange={(value) => onChange(match, "home", value)}
                           />
                           <span className="text-white/40">-</span>
                           <ScoreField
                             label={`${match.away} mål`}
                             value={prediction?.score?.away}
-                            disabled={isLocked}
+                            disabled={isInputDisabled}
                             onChange={(value) => onChange(match, "away", value)}
                           />
                         </div>
@@ -3312,11 +3315,13 @@ function KnockoutPredictionPanel({
                 {stageMatches.map((match) => {
                   const prediction = predictionMap.get(match.id);
                   const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
+                  const hasPredictionScore = Boolean(prediction?.score);
+                  const isRepairableBlankPrediction = Boolean(resolveTeams) && isLocked && !hasPredictionScore;
                   const isOpenStage = openKnockoutStages.includes(match.stage);
-                  const isEditable = resolveTeams && isOpenStage && !isLocked;
+                  const isEditable = (resolveTeams && isOpenStage && !isLocked) || isRepairableBlankPrediction;
                   const isDraw = prediction?.score?.home === prediction?.score?.away;
                   const winner = getWinnerLabel(match, prediction?.score, prediction?.winner);
-                  const statusLabel = isLocked ? "Låst" : isEditable ? "Öppen" : "Öppnar senare";
+                  const statusLabel = isRepairableBlankPrediction ? "Fyll i saknat tips" : isLocked ? "Låst" : isEditable ? "Öppen" : "Öppnar senare";
 
                   return (
                     <div
