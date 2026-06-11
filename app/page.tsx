@@ -354,12 +354,12 @@ function hasTournamentStarted(now = new Date()) {
   return getFixtureKickoff(fixtures[0]) <= now;
 }
 
-function isBonusLocked(now: Date) {
-  return hasTournamentStarted(now);
+function isBonusLocked(now: Date, lockedDates: string[], lockedMatchIds: number[] = []) {
+  return hasTournamentStarted(now) || isFixtureLocked(fixtures[0], lockedDates, lockedMatchIds);
 }
 
 function isPredictionInputLocked(fixture: Fixture, lockedDates: string[], lockedMatchIds: number[] = [], now = new Date()) {
-  return fixture.stage === "Gruppspel" ? hasTournamentStarted(now) : isFixtureLocked(fixture, lockedDates, lockedMatchIds);
+  return fixture.stage === "Gruppspel" ? hasTournamentStarted(now) || isFixtureLocked(fixture, lockedDates, lockedMatchIds) : isFixtureLocked(fixture, lockedDates, lockedMatchIds);
 }
 
 function getMatchesByDate(date: string) {
@@ -1305,7 +1305,7 @@ export default function Home() {
 
   const dashboardNow = useMemo(() => new Date(clockTick), [clockTick]);
   const groupTipsLocked = useMemo(() => hasTournamentStarted(dashboardNow), [dashboardNow]);
-  const bonusLocked = useMemo(() => isBonusLocked(dashboardNow), [dashboardNow]);
+  const bonusLocked = useMemo(() => isBonusLocked(dashboardNow, lockedDates, lockedMatchIds), [dashboardNow, lockedDates, lockedMatchIds]);
   const tournamentCountdown = useMemo(() => getTournamentCountdown(dashboardNow), [dashboardNow]);
   const next = useMemo(() => getDashboardNextFixture(homePreviewDate || undefined, dashboardNow), [dashboardNow, homePreviewDate]);
   const matchDayPanel = useMemo(() => getMatchDayPanel(homePreviewDate || undefined, dashboardNow), [dashboardNow, homePreviewDate]);
@@ -1377,13 +1377,8 @@ export default function Home() {
   function updatePrediction(match: Fixture & Partial<ResolvedKnockoutFixture>, side: "home" | "away", value: number) {
     if (isPredictionInputLocked(match, lockedDates, lockedMatchIds)) return;
 
-    setPredictions((current) => {
-      const existingPrediction = current.find((prediction) => prediction.matchId === match.id);
-      const predictionToUpdate = existingPrediction ?? {
-        matchId: match.id,
-        winner: match.stage === "Gruppspel" ? "Ej tippat" : "Ej valt",
-      };
-      const nextPredictions = current.map((prediction) => {
+    setPredictions((current) =>
+      current.map((prediction) => {
         if (prediction.matchId !== match.id) return prediction;
         const score = prediction.score ?? { home: 0, away: 0 };
         const nextScore = { ...score, [side]: Number.isNaN(value) ? 0 : value };
@@ -1404,37 +1399,16 @@ export default function Home() {
           score: nextScore,
           winner,
         };
-      });
-
-      if (existingPrediction) return nextPredictions;
-
-      const score = predictionToUpdate.score ?? { home: 0, away: 0 };
-      const nextScore = { ...score, [side]: Number.isNaN(value) ? 0 : value };
-      const home = match.resolvedHome ?? match.home;
-      const away = match.resolvedAway ?? match.away;
-      const winner =
-        nextScore.home > nextScore.away
-          ? home
-          : nextScore.home < nextScore.away
-            ? away
-            : match.stage === "Gruppspel"
-              ? "Oavgjort"
-              : "Ej valt";
-
-      return [...current, { ...predictionToUpdate, score: nextScore, winner }];
-    });
+      }),
+    );
   }
 
   function updatePredictionWinner(match: Fixture, winner: string) {
     if (isPredictionInputLocked(match, lockedDates, lockedMatchIds)) return;
 
-    setPredictions((current) => {
-      if (current.some((prediction) => prediction.matchId === match.id)) {
-        return current.map((prediction) => (prediction.matchId === match.id ? { ...prediction, winner } : prediction));
-      }
-
-      return [...current, { matchId: match.id, winner }];
-    });
+    setPredictions((current) =>
+      current.map((prediction) => (prediction.matchId === match.id ? { ...prediction, winner } : prediction)),
+    );
   }
 
   function updateBonusAnswer(key: keyof BonusPrediction, value: string) {
@@ -2993,7 +2967,7 @@ function PredictionsPanel({
                 <div className="grid gap-2 p-2 sm:p-3">
                   {groupMatches.map((match) => {
                     const prediction = predictionMap.get(match.id);
-                    const isLocked = groupTipsLocked;
+                    const isLocked = groupTipsLocked || isFixtureLocked(match, lockedDates, lockedMatchIds);
                     return (
                       <div
                         key={match.id}
