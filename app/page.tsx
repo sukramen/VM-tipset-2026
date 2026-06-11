@@ -969,6 +969,7 @@ type SupabaseSnapshot = {
   resultWinners: Record<number, string>;
   lockedDates: string[];
   lockedMatchIds: number[];
+  groupStageTipsLocked: boolean;
   officialBonusAnswers: BonusPrediction;
 };
 
@@ -987,13 +988,14 @@ function mergeProfilePredictionsWithDefaults(savedPredictions: Prediction[]) {
 }
 
 async function loadSupabaseSnapshot(): Promise<SupabaseSnapshot> {
-  const [dbProfiles, dbPredictions, dbBonus, dbResults, dbLockedDates, dbLockedMatchIds, dbOfficialBonus] = await Promise.all([
+  const [dbProfiles, dbPredictions, dbBonus, dbResults, dbLockedDates, dbLockedMatchIds, dbGroupStageTipsLocked, dbOfficialBonus] = await Promise.all([
     loadProfilesFromDb(),
     loadAllPredictionsFromDb(),
     loadAllBonusFromDb(),
     loadResultsFromDb(),
     loadAppStateFromDb<string[]>("locked_dates", []),
     loadAppStateFromDb<number[]>("locked_match_ids", []),
+    loadAppStateFromDb<boolean>("group_stage_tips_locked", false),
     loadAppStateFromDb<BonusPrediction>("official_bonus", defaultBonusAnswers),
   ]);
 
@@ -1008,6 +1010,7 @@ async function loadSupabaseSnapshot(): Promise<SupabaseSnapshot> {
     resultWinners: dbResults.resultWinners,
     lockedDates: dbLockedDates,
     lockedMatchIds: dbLockedMatchIds,
+    groupStageTipsLocked: dbGroupStageTipsLocked,
     officialBonusAnswers: dbOfficialBonus,
   };
 }
@@ -1028,6 +1031,7 @@ export default function Home() {
   const [authError, setAuthError] = useState("");
   const [lockedDates, setLockedDates] = useState<string[]>([]);
   const [lockedMatchIds, setLockedMatchIds] = useState<number[]>([]);
+  const [groupStageTipsLocked, setGroupStageTipsLocked] = useState(false);
   const [matchSyncMessage, setMatchSyncMessage] = useState("");
   const [showWinnersModal, setShowWinnersModal] = useState(false);
   const [winnersModalDismissed, setWinnersModalDismissed] = useState(false);
@@ -1127,6 +1131,7 @@ export default function Home() {
       setResultWinners(snapshot.resultWinners);
       setLockedDates(snapshot.lockedDates);
       setLockedMatchIds(snapshot.lockedMatchIds);
+      setGroupStageTipsLocked(snapshot.groupStageTipsLocked);
       setOfficialBonusAnswers(snapshot.officialBonusAnswers);
       setStorageMode("supabase");
       setIsDatabaseLoaded(true);
@@ -1165,6 +1170,7 @@ export default function Home() {
           setResultWinners(snapshot.resultWinners);
           setLockedDates(snapshot.lockedDates);
           setLockedMatchIds(snapshot.lockedMatchIds);
+          setGroupStageTipsLocked(snapshot.groupStageTipsLocked);
           setOfficialBonusAnswers(snapshot.officialBonusAnswers);
           setStorageMode("supabase");
           setIsDatabaseLoaded(true);
@@ -1182,6 +1188,7 @@ export default function Home() {
       const savedProfiles = readStoredJson<PlayerProfile[] | null>("vm-tipset-profiles", null);
       setLockedDates(readStoredJson("vm-tipset-locked-dates", []));
       setLockedMatchIds(readStoredJson("vm-tipset-locked-match-ids", []));
+      setGroupStageTipsLocked(readStoredJson("vm-tipset-group-stage-tips-locked", false));
       setOfficialBonusAnswers(readStoredJson("vm-tipset-official-bonus", defaultBonusAnswers));
       setResultWinners(readStoredJson("vm-tipset-result-winners", {}));
       setResults(readStoredJson("vm-tipset-results", sampleResults));
@@ -1216,6 +1223,16 @@ export default function Home() {
     window.localStorage.setItem("vm-tipset-locked-dates", JSON.stringify(lockedDates));
     window.localStorage.setItem("vm-tipset-locked-match-ids", JSON.stringify(lockedMatchIds));
   }, [isDatabaseLoaded, lockedDates, lockedMatchIds, storageMode]);
+
+  useEffect(() => {
+    if (!isDatabaseLoaded) return;
+    if (storageMode === "supabase") {
+      if (suppressRemoteAutosaveRef.current) return;
+      saveAppStateToDb("group_stage_tips_locked", groupStageTipsLocked).catch((error) => logStorageError("Kunde inte spara gruppspelslås.", error));
+      return;
+    }
+    window.localStorage.setItem("vm-tipset-group-stage-tips-locked", JSON.stringify(groupStageTipsLocked));
+  }, [groupStageTipsLocked, isDatabaseLoaded, storageMode]);
 
   useEffect(() => {
     if (!isDatabaseLoaded) return;
@@ -1494,6 +1511,7 @@ export default function Home() {
   }, [activeTab, currentProfile?.id]);
 
   function updatePrediction(match: Fixture & Partial<ResolvedKnockoutFixture>, side: "home" | "away", value: number) {
+    if (groupStageTipsLocked && match.stage === "Gruppspel") return;
     markPredictionDirty();
     setPredictions((current) => {
       const existingPrediction = current.find((prediction) => prediction.matchId === match.id);
@@ -1695,17 +1713,20 @@ export default function Home() {
       saveResultsToDb({}, {}, { allowDeleteAll: true }).catch((error) => logStorageError("Kunde nollställa adminresultat.", error));
       saveAppStateToDb("locked_dates", []).catch((error) => logStorageError("Kunde nollställa låsta dagar.", error));
       saveAppStateToDb("locked_match_ids", []).catch((error) => logStorageError("Kunde nollställa låsta matcher.", error));
+      saveAppStateToDb("group_stage_tips_locked", false).catch((error) => logStorageError("Kunde nollställa gruppspelslås.", error));
     } else {
       window.localStorage.setItem("vm-tipset-results", JSON.stringify({}));
       window.localStorage.setItem("vm-tipset-result-winners", JSON.stringify({}));
       window.localStorage.setItem("vm-tipset-locked-dates", JSON.stringify([]));
       window.localStorage.setItem("vm-tipset-locked-match-ids", JSON.stringify([]));
+      window.localStorage.setItem("vm-tipset-group-stage-tips-locked", JSON.stringify(false));
     }
 
     setResults({});
     setResultWinners({});
     setLockedDates([]);
     setLockedMatchIds([]);
+    setGroupStageTipsLocked(false);
   }
 
   function resetDevData() {
@@ -1716,12 +1737,14 @@ export default function Home() {
       saveResultsToDb({}, {}, { allowDeleteAll: true }).catch((error) => logStorageError("Kunde nollställa adminresultat.", error));
       saveAppStateToDb("locked_dates", []).catch((error) => logStorageError("Kunde nollställa låsta dagar.", error));
       saveAppStateToDb("locked_match_ids", []).catch((error) => logStorageError("Kunde nollställa låsta matcher.", error));
+      saveAppStateToDb("group_stage_tips_locked", false).catch((error) => logStorageError("Kunde nollställa gruppspelslås.", error));
       saveAppStateToDb("official_bonus", defaultBonusAnswers).catch((error) => logStorageError("Kunde nollställa bonusfacit.", error));
     } else {
       window.localStorage.setItem("vm-tipset-results", JSON.stringify({}));
       window.localStorage.setItem("vm-tipset-result-winners", JSON.stringify({}));
       window.localStorage.setItem("vm-tipset-locked-dates", JSON.stringify([]));
       window.localStorage.setItem("vm-tipset-locked-match-ids", JSON.stringify([]));
+      window.localStorage.setItem("vm-tipset-group-stage-tips-locked", JSON.stringify(false));
       window.localStorage.setItem("vm-tipset-official-bonus", JSON.stringify(defaultBonusAnswers));
     }
 
@@ -1752,6 +1775,7 @@ export default function Home() {
     setResultWinners({});
     setLockedDates([]);
     setLockedMatchIds([]);
+    setGroupStageTipsLocked(false);
   }
 
   function updateResult(matchId: number, side: "home" | "away", value: number) {
@@ -1799,6 +1823,10 @@ export default function Home() {
 
       return next;
     });
+  }
+
+  function toggleGroupStageTipsLocked() {
+    setGroupStageTipsLocked((current) => !current);
   }
 
   function openWinnersModal() {
@@ -2047,6 +2075,7 @@ export default function Home() {
               actualResultWinners={resultWinners}
               lockedDates={lockedDates}
               lockedMatchIds={lockedMatchIds}
+              groupStageTipsLocked={groupStageTipsLocked}
               bonusAnswers={bonusAnswers}
               bonusLocked={bonusLocked}
               onChange={updatePrediction}
@@ -2098,8 +2127,10 @@ export default function Home() {
               openWinnersModal={openWinnersModal}
               lockedDates={lockedDates}
               lockedMatchIds={lockedMatchIds}
+              groupStageTipsLocked={groupStageTipsLocked}
               toggleLockedDate={toggleLockedDate}
               toggleLockedMatch={toggleLockedMatch}
+              toggleGroupStageTipsLocked={toggleGroupStageTipsLocked}
               matchSyncMessage={matchSyncMessage}
               databaseSyncMessage={databaseSyncMessage}
               isDatabaseSyncing={isDatabaseSyncing}
@@ -2911,6 +2942,7 @@ function PredictionsPanel({
   actualResultWinners,
   lockedDates,
   lockedMatchIds,
+  groupStageTipsLocked,
   bonusAnswers,
   bonusLocked,
   onChange,
@@ -2923,6 +2955,7 @@ function PredictionsPanel({
   actualResultWinners: Record<number, string>;
   lockedDates: string[];
   lockedMatchIds: number[];
+  groupStageTipsLocked: boolean;
   bonusAnswers: BonusPrediction;
   bonusLocked: boolean;
   onChange: (match: Fixture, side: "home" | "away", value: number) => void;
@@ -2991,7 +3024,9 @@ function PredictionsPanel({
               <p className="mt-6 text-sm uppercase tracking-[0.28em] text-volt">72 matcher</p>
               <h3 className="mt-2 font-display text-3xl font-black">Gruppspel</h3>
               <p className="mt-3 text-white/60">
-                {stageIsLocked("Gruppspel", lockedDates, lockedMatchIds)
+                {groupStageTipsLocked
+                  ? "Gruppspelet är stängt för nya tips."
+                  : stageIsLocked("Gruppspel", lockedDates, lockedMatchIds)
                   ? "Gruppspelet är låst. Du kan fortfarande se dina tips."
                   : "Tippa alla grupper A-L och se tabellerna uppdateras direkt."}
               </p>
@@ -3074,8 +3109,9 @@ function PredictionsPanel({
                   {groupMatches.map((match) => {
                     const prediction = predictionMap.get(match.id);
                     const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
+                    const isGroupStageTipsLocked = groupStageTipsLocked && match.stage === "Gruppspel";
                     const hasPredictionScore = Boolean(prediction?.score);
-                    const isInputDisabled = isLocked && hasPredictionScore;
+                    const isInputDisabled = isGroupStageTipsLocked || (isLocked && hasPredictionScore);
                     return (
                       <div
                         key={match.id}
@@ -3089,6 +3125,7 @@ function PredictionsPanel({
                           <p className="font-bold"><TeamLabel team={match.home} /></p>
                           <p className="text-xs text-white/40">
                             {formatDate(match.date)}
+                            {isGroupStageTipsLocked ? " · Stängt för tips" : ""}
                             {isLocked ? " · Låst" : ""}
                           </p>
                         </div>
@@ -3880,8 +3917,10 @@ function AdminPanel({
   openWinnersModal,
   lockedDates,
   lockedMatchIds,
+  groupStageTipsLocked,
   toggleLockedDate,
   toggleLockedMatch,
+  toggleGroupStageTipsLocked,
   matchSyncMessage,
   databaseSyncMessage,
   isDatabaseSyncing,
@@ -3911,8 +3950,10 @@ function AdminPanel({
   openWinnersModal: () => void;
   lockedDates: string[];
   lockedMatchIds: number[];
+  groupStageTipsLocked: boolean;
   toggleLockedDate: (date: string) => void;
   toggleLockedMatch: (matchId: number) => void;
+  toggleGroupStageTipsLocked: () => void;
   matchSyncMessage: string;
   databaseSyncMessage: string;
   isDatabaseSyncing: boolean;
@@ -4274,6 +4315,33 @@ function AdminPanel({
           <Sparkles className="text-coral" />
           <h3 className="mt-3 font-display text-xl font-black">Utvecklarverktyg</h3>
           <p className="mt-2 text-sm text-white/60">Endast för test: lås matcher med slumpade resultat eller fyll all testdata.</p>
+          <label className="mt-4 flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+            <span>
+              <span className="block font-display text-base font-black text-white">Lås gruppspelstips</span>
+              <span className="mt-1 block text-sm text-white/55">
+                {groupStageTipsLocked ? "Gruppspelet är stängt för tippning." : "Spelare kan fortfarande tippa gruppspelet."}
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={groupStageTipsLocked}
+              onChange={toggleGroupStageTipsLocked}
+              className="peer sr-only"
+            />
+            <span
+              className={classNames(
+                "relative h-7 w-12 shrink-0 rounded-full transition",
+                groupStageTipsLocked ? "bg-coral" : "bg-white/20",
+              )}
+            >
+              <span
+                className={classNames(
+                  "absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition",
+                  groupStageTipsLocked && "translate-x-5",
+                )}
+              />
+            </span>
+          </label>
           <div className="mt-4 grid gap-2">
             <button
               onClick={randomizeResultsAndLockOnly}
