@@ -358,10 +358,6 @@ function isBonusLocked(now: Date, lockedDates: string[], lockedMatchIds: number[
   return hasTournamentStarted(now) || isFixtureLocked(fixtures[0], lockedDates, lockedMatchIds);
 }
 
-function isPredictionInputLocked(fixture: Fixture, lockedDates: string[], lockedMatchIds: number[] = [], now = new Date()) {
-  return fixture.stage === "Gruppspel" ? hasTournamentStarted(now) || isFixtureLocked(fixture, lockedDates, lockedMatchIds) : isFixtureLocked(fixture, lockedDates, lockedMatchIds);
-}
-
 function getMatchesByDate(date: string) {
   return fixtures
     .filter((fixture) => fixture.date === date)
@@ -1304,7 +1300,6 @@ export default function Home() {
   );
 
   const dashboardNow = useMemo(() => new Date(clockTick), [clockTick]);
-  const groupTipsLocked = useMemo(() => hasTournamentStarted(dashboardNow), [dashboardNow]);
   const bonusLocked = useMemo(() => isBonusLocked(dashboardNow, lockedDates, lockedMatchIds), [dashboardNow, lockedDates, lockedMatchIds]);
   const tournamentCountdown = useMemo(() => getTournamentCountdown(dashboardNow), [dashboardNow]);
   const next = useMemo(() => getDashboardNextFixture(homePreviewDate || undefined, dashboardNow), [dashboardNow, homePreviewDate]);
@@ -1375,7 +1370,7 @@ export default function Home() {
   }, [activeTab, currentProfile?.id]);
 
   function updatePrediction(match: Fixture & Partial<ResolvedKnockoutFixture>, side: "home" | "away", value: number) {
-    if (isPredictionInputLocked(match, lockedDates, lockedMatchIds)) return;
+    if (isFixtureLocked(match, lockedDates, lockedMatchIds)) return;
 
     setPredictions((current) =>
       current.map((prediction) => {
@@ -1404,7 +1399,7 @@ export default function Home() {
   }
 
   function updatePredictionWinner(match: Fixture, winner: string) {
-    if (isPredictionInputLocked(match, lockedDates, lockedMatchIds)) return;
+    if (isFixtureLocked(match, lockedDates, lockedMatchIds)) return;
 
     setPredictions((current) =>
       current.map((prediction) => (prediction.matchId === match.id ? { ...prediction, winner } : prediction)),
@@ -1427,7 +1422,7 @@ export default function Home() {
     setPredictions((current) =>
       current.map((prediction) => {
         const fixture = fixtures.find((match) => match.id === prediction.matchId);
-        if (fixture && isPredictionInputLocked(fixture, lockedDates, lockedMatchIds)) return prediction;
+        if (fixture && isFixtureLocked(fixture, lockedDates, lockedMatchIds)) return prediction;
         return { matchId: prediction.matchId, winner: fixture?.stage === "Gruppspel" ? "Ej tippat" : "Ej valt" };
       }),
     );
@@ -1911,7 +1906,6 @@ export default function Home() {
               lockedMatchIds={lockedMatchIds}
               bonusAnswers={bonusAnswers}
               bonusLocked={bonusLocked}
-              groupTipsLocked={groupTipsLocked}
               saveStatus={tipSaveStatus}
               onChange={updatePrediction}
               onWinnerChange={updatePredictionWinner}
@@ -1938,7 +1932,6 @@ export default function Home() {
               lockedDates={lockedDates}
               lockedMatchIds={lockedMatchIds}
               bonusLocked={bonusLocked}
-              groupTipsLocked={groupTipsLocked}
             />
           )}
           {activeTab === "Admin" && (
@@ -2792,7 +2785,6 @@ function PredictionsPanel({
   lockedMatchIds,
   bonusAnswers,
   bonusLocked,
-  groupTipsLocked,
   saveStatus,
   onChange,
   onWinnerChange,
@@ -2806,7 +2798,6 @@ function PredictionsPanel({
   lockedMatchIds: number[];
   bonusAnswers: BonusPrediction;
   bonusLocked: boolean;
-  groupTipsLocked: boolean;
   saveStatus: SaveStatus;
   onChange: (match: Fixture, side: "home" | "away", value: number) => void;
   onWinnerChange: (match: Fixture, winner: string) => void;
@@ -2881,8 +2872,6 @@ function PredictionsPanel({
               <p className="mt-3 text-white/60">
                 {stageIsLocked("Gruppspel", lockedDates, lockedMatchIds)
                   ? "Gruppspelet är låst. Du kan fortfarande se dina tips."
-                  : groupTipsLocked
-                    ? "Tipset är låst. Du kan fortfarande se dina tips."
                   : "Tippa alla grupper A-L och se tabellerna uppdateras direkt."}
               </p>
             </div>
@@ -2967,7 +2956,7 @@ function PredictionsPanel({
                 <div className="grid gap-2 p-2 sm:p-3">
                   {groupMatches.map((match) => {
                     const prediction = predictionMap.get(match.id);
-                    const isLocked = groupTipsLocked || isFixtureLocked(match, lockedDates, lockedMatchIds);
+                    const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
                     return (
                       <div
                         key={match.id}
@@ -3060,8 +3049,7 @@ function PredictionsPanel({
             <p className="mt-1 text-sm text-white/60">Tömmer alla olåsta matcher för din profil.</p>
             <button
               onClick={onResetPredictions}
-              disabled={groupTipsLocked && !actualOpenKnockoutStages.length}
-              className="mt-4 w-full rounded-2xl bg-coral px-4 py-3 font-display font-black text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
+              className="mt-4 w-full rounded-2xl bg-coral px-4 py-3 font-display font-black text-white transition hover:brightness-110"
             >
               Nollställ mitt tips
             </button>
@@ -3089,7 +3077,7 @@ function PredictionsPanel({
         <div className="glass rounded-[1.5rem] p-4 sm:rounded-[2rem] sm:p-6">
           <Lock className="text-flare" />
           <h3 className="mt-3 font-display text-xl font-black">Låsning</h3>
-          <p className="mt-2 text-sm text-white/60">Alla tips låses automatiskt 11 juni 21:00 när Mexiko - Sydafrika startar.</p>
+          <p className="mt-2 text-sm text-white/60">Varje tips låses automatiskt vid matchstart.</p>
         </div>
       </aside>
     </div>
@@ -4182,7 +4170,6 @@ function OtherPredictionsPanel({
   lockedDates,
   lockedMatchIds,
   bonusLocked,
-  groupTipsLocked,
 }: {
   profiles: PlayerProfile[];
   currentProfile: PlayerProfile;
@@ -4191,7 +4178,6 @@ function OtherPredictionsPanel({
   lockedDates: string[];
   lockedMatchIds: number[];
   bonusLocked: boolean;
-  groupTipsLocked: boolean;
 }) {
   const playerProfiles = profiles.filter((profile) => profile.role === "player");
   const visibleProfiles = currentProfile.role === "admin" ? playerProfiles : playerProfiles.filter((profile) => profile.id !== currentProfile.id);
@@ -4285,7 +4271,6 @@ function OtherPredictionsPanel({
                 predictionMap={predictionMap}
                 lockedDates={lockedDates}
                 lockedMatchIds={lockedMatchIds}
-                groupTipsLocked={groupTipsLocked}
               />
             );
           })}
@@ -4301,7 +4286,6 @@ function OtherPredictionsPanel({
                 predictionMap={predictionMap}
                 lockedDates={lockedDates}
                 lockedMatchIds={lockedMatchIds}
-                groupTipsLocked={groupTipsLocked}
               />
             );
           })}
@@ -4318,7 +4302,6 @@ function PredictionReadOnlySection({
   predictionMap,
   lockedDates,
   lockedMatchIds,
-  groupTipsLocked,
 }: {
   title: string;
   tone: "volt" | "flare";
@@ -4326,7 +4309,6 @@ function PredictionReadOnlySection({
   predictionMap: Map<number, Prediction>;
   lockedDates: string[];
   lockedMatchIds: number[];
-  groupTipsLocked: boolean;
 }) {
   const accentClass = tone === "flare" ? "text-flare" : "text-volt";
 
@@ -4338,7 +4320,7 @@ function PredictionReadOnlySection({
       <div className="grid gap-2 p-2 sm:p-3">
         {matches.map((match) => {
           const prediction = predictionMap.get(match.id);
-          const isLocked = (match.stage === "Gruppspel" && groupTipsLocked) || isFixtureLocked(match, lockedDates, lockedMatchIds);
+          const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
           const scoreLabel = prediction?.score ? `${prediction.score.home}-${prediction.score.away}` : "-";
 
           return (
