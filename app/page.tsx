@@ -994,6 +994,21 @@ export default function Home() {
   const lockedDatesRef = useRef<string[]>([]);
   const lockedMatchIdsRef = useRef<number[]>([]);
   const lastMatchSyncAtRef = useRef(0);
+  const dirtyPredictionIdsByProfileRef = useRef<Record<string, Set<number>>>({});
+  const clearedPredictionIdsByProfileRef = useRef<Record<string, Set<number>>>({});
+
+  function markPredictionDirty(matchId: number) {
+    if (!currentProfile) return;
+    dirtyPredictionIdsByProfileRef.current[currentProfile.id] ??= new Set();
+    dirtyPredictionIdsByProfileRef.current[currentProfile.id].add(matchId);
+  }
+
+  function markPredictionCleared(matchId: number) {
+    if (!currentProfile) return;
+    markPredictionDirty(matchId);
+    clearedPredictionIdsByProfileRef.current[currentProfile.id] ??= new Set();
+    clearedPredictionIdsByProfileRef.current[currentProfile.id].add(matchId);
+  }
 
   useEffect(() => {
     allPredictionsRef.current = allPredictionsByProfile;
@@ -1133,8 +1148,27 @@ export default function Home() {
     if (!currentProfile || !isDatabaseLoaded) return;
     if (loadedProfileId !== currentProfile.id) return;
     setAllPredictionsByProfile((current) => ({ ...current, [currentProfile.id]: predictions }));
+    const dirtyPredictionSet = dirtyPredictionIdsByProfileRef.current[currentProfile.id];
+    const clearedPredictionSet = clearedPredictionIdsByProfileRef.current[currentProfile.id];
+    const dirtyPredictionIds = [...(dirtyPredictionSet ?? [])];
+    const clearedPredictionIds = [...(clearedPredictionSet ?? [])];
+    const clearedPredictionIdSet = new Set(clearedPredictionIds);
+    if (dirtyPredictionIds.length === 0) return;
+    dirtyPredictionSet?.clear();
+    clearedPredictionSet?.clear();
+
     if (storageMode === "supabase") {
-      savePredictionsToDb(currentProfile.id, predictions).catch((error) => logStorageError("Kunde inte spara tips.", error));
+      const dirtyPredictions = predictions.filter(
+        (prediction) => dirtyPredictionIds.includes(prediction.matchId) && (prediction.score || clearedPredictionIdSet.has(prediction.matchId)),
+      );
+      if (dirtyPredictions.length === 0) return;
+      savePredictionsToDb(currentProfile.id, dirtyPredictions).catch((error) => {
+        dirtyPredictionIdsByProfileRef.current[currentProfile.id] ??= new Set();
+        dirtyPredictionIds.forEach((matchId) => dirtyPredictionIdsByProfileRef.current[currentProfile.id].add(matchId));
+        clearedPredictionIdsByProfileRef.current[currentProfile.id] ??= new Set();
+        clearedPredictionIds.forEach((matchId) => clearedPredictionIdsByProfileRef.current[currentProfile.id].add(matchId));
+        logStorageError("Kunde inte spara tips.", error);
+      });
       return;
     }
     window.localStorage.setItem(`vm-tipset-predictions-${currentProfile.id}`, JSON.stringify(predictions));
@@ -1330,38 +1364,45 @@ export default function Home() {
   function updatePrediction(match: Fixture & Partial<ResolvedKnockoutFixture>, side: "home" | "away", value: number) {
     if (isFixtureLocked(match, lockedDates, lockedMatchIds)) return;
 
-    setPredictions((current) =>
-      current.map((prediction) => {
-        if (prediction.matchId !== match.id) return prediction;
-        const score = prediction.score ?? { home: 0, away: 0 };
-        const nextScore = { ...score, [side]: Number.isNaN(value) ? 0 : value };
-        const home = match.resolvedHome ?? match.home;
-        const away = match.resolvedAway ?? match.away;
-        const winner =
-          nextScore.home > nextScore.away
-            ? home
-            : nextScore.home < nextScore.away
-              ? away
-              : match.stage === "Gruppspel"
-                ? "Oavgjort"
-                : prediction.winner && [home, away].includes(prediction.winner)
-                  ? prediction.winner
-                  : "Ej valt";
-        return {
-          ...prediction,
-          score: nextScore,
-          winner,
-        };
-      }),
-    );
+    markPredictionDirty(match.id);
+    setPredictions((current) => {
+      const existingPrediction = current.find((prediction) => prediction.matchId === match.id);
+      const basePrediction: Prediction = existingPrediction ?? {
+        matchId: match.id,
+        winner: match.stage === "Gruppspel" ? "Ej tippat" : "Ej valt",
+      };
+      const score = basePrediction.score ?? { home: 0, away: 0 };
+      const nextScore = { ...score, [side]: Number.isNaN(value) ? 0 : value };
+      const home = match.resolvedHome ?? match.home;
+      const away = match.resolvedAway ?? match.away;
+      const winner =
+        nextScore.home > nextScore.away
+          ? home
+          : nextScore.home < nextScore.away
+            ? away
+            : match.stage === "Gruppspel"
+              ? "Oavgjort"
+              : basePrediction.winner && [home, away].includes(basePrediction.winner)
+                ? basePrediction.winner
+                : "Ej valt";
+      const nextPrediction = { ...basePrediction, score: nextScore, winner };
+
+      if (!existingPrediction) return [...current, nextPrediction];
+      return current.map((prediction) => (prediction.matchId === match.id ? nextPrediction : prediction));
+    });
   }
 
   function updatePredictionWinner(match: Fixture, winner: string) {
     if (isFixtureLocked(match, lockedDates, lockedMatchIds)) return;
 
-    setPredictions((current) =>
-      current.map((prediction) => (prediction.matchId === match.id ? { ...prediction, winner } : prediction)),
-    );
+    markPredictionDirty(match.id);
+    setPredictions((current) => {
+      if (current.some((prediction) => prediction.matchId === match.id)) {
+        return current.map((prediction) => (prediction.matchId === match.id ? { ...prediction, winner } : prediction));
+      }
+
+      return [...current, { matchId: match.id, winner }];
+    });
   }
 
   function updateBonusAnswer(key: keyof BonusPrediction, value: string) {
@@ -1377,6 +1418,9 @@ export default function Home() {
     const confirmed = window.confirm("Vill du tömma alla olåsta matcher i ditt tips?");
     if (!confirmed) return;
 
+    fixtures.forEach((fixture) => {
+      if (!isFixtureLocked(fixture, lockedDates, lockedMatchIds)) markPredictionCleared(fixture.id);
+    });
     setPredictions((current) =>
       current.map((prediction) => {
         const fixture = fixtures.find((match) => match.id === prediction.matchId);
