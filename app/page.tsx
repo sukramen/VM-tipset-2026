@@ -1587,7 +1587,7 @@ export default function Home() {
 
     profiles.forEach((profile) => {
       if (storageMode === "supabase") {
-        savePredictionsToDb(profile.id, defaultPredictions).catch((error) => logStorageError("Kunde inte nollställa tips.", error));
+        savePredictionsToDb(profile.id, defaultPredictions, { allowEmptyScores: true }).catch((error) => logStorageError("Kunde inte nollställa tips.", error));
         saveBonusToDb(profile.id, defaultBonusAnswers).catch((error) => logStorageError("Kunde inte nollställa bonus.", error));
       } else {
         window.localStorage.setItem(`vm-tipset-predictions-${profile.id}`, JSON.stringify(defaultPredictions));

@@ -163,15 +163,18 @@ export async function loadAllPredictionsFromDb() {
   }, {});
 }
 
-export async function savePredictionsToDb(profileId: string, predictions: Prediction[]) {
+export async function savePredictionsToDb(profileId: string, predictions: Prediction[], options: { allowEmptyScores?: boolean } = {}) {
   if (!supabase) return;
-  const rows = predictions.map((prediction) => ({
-    profile_id: profileId,
-    match_id: prediction.matchId,
-    home_score: prediction.score?.home ?? null,
-    away_score: prediction.score?.away ?? null,
-    winner: prediction.winner ?? null,
-  }));
+  const rows = predictions
+    .filter((prediction) => options.allowEmptyScores || prediction.score)
+    .map((prediction) => ({
+      profile_id: profileId,
+      match_id: prediction.matchId,
+      home_score: prediction.score?.home ?? null,
+      away_score: prediction.score?.away ?? null,
+      winner: prediction.winner ?? null,
+    }));
+  if (rows.length === 0) return;
   await enqueueWrite(`predictions:${profileId}`, () =>
     withRetryOnWriteConflict(async () => {
       const { error } = await supabase.from("vm_predictions").upsert(rows, { onConflict: "profile_id,match_id" });
