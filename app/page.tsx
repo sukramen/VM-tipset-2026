@@ -19,7 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Area,
@@ -39,6 +39,7 @@ import {
   loadAllBonusFromDb,
   loadAllPredictionsFromDb,
   loadAppStateFromDb,
+  loadPredictionsFromDb,
   loadProfilesFromDb,
   loadResultsFromDb,
   saveAppStateToDb,
@@ -960,6 +961,72 @@ function updateBonusValue(current: BonusPrediction, key: keyof BonusPrediction, 
   return { ...current, [key]: value };
 }
 
+type SupabaseSnapshot = {
+  profiles: PlayerProfile[];
+  predictionsByProfile: Record<string, Prediction[]>;
+  bonusByProfile: Record<string, BonusPrediction>;
+  results: Record<number, ScoreLine>;
+  resultWinners: Record<number, string>;
+  lockedDates: string[];
+  lockedMatchIds: number[];
+  officialBonusAnswers: BonusPrediction;
+};
+
+function mergePredictionsWithDefaults(profiles: PlayerProfile[], dbPredictions: Record<string, Prediction[]>) {
+  return Object.fromEntries(
+    profiles.map((profile) => {
+      return [profile.id, mergeProfilePredictionsWithDefaults(dbPredictions[profile.id] ?? [])];
+    }),
+  );
+}
+
+function mergeProfilePredictionsWithDefaults(savedPredictions: Prediction[]) {
+  const savedMatchIds = new Set(savedPredictions.map((prediction) => prediction.matchId));
+  const missingDefaults = defaultPredictions.filter((prediction) => !savedMatchIds.has(prediction.matchId));
+  return [...savedPredictions, ...missingDefaults];
+}
+
+async function backfillMissingDefaultPredictions(profiles: PlayerProfile[], dbPredictions: Record<string, Prediction[]>) {
+  await Promise.all(
+    profiles.map((profile) => {
+      const savedMatchIds = new Set((dbPredictions[profile.id] ?? []).map((prediction) => prediction.matchId));
+      const missingDefaults = defaultPredictions.filter((prediction) => !savedMatchIds.has(prediction.matchId));
+      if (missingDefaults.length === 0) return Promise.resolve();
+      return savePredictionsToDb(profile.id, missingDefaults, { allowEmptyScores: true });
+    }),
+  );
+}
+
+async function loadSupabaseSnapshot(): Promise<SupabaseSnapshot> {
+  const [dbProfiles, dbPredictions, dbBonus, dbResults, dbLockedDates, dbLockedMatchIds, dbOfficialBonus] = await Promise.all([
+    loadProfilesFromDb(),
+    loadAllPredictionsFromDb(),
+    loadAllBonusFromDb(),
+    loadResultsFromDb(),
+    loadAppStateFromDb<string[]>("locked_dates", []),
+    loadAppStateFromDb<number[]>("locked_match_ids", []),
+    loadAppStateFromDb<BonusPrediction>("official_bonus", defaultBonusAnswers),
+  ]);
+
+  const profiles = dbProfiles.length > 0 ? dbProfiles : starterProfiles;
+  if (dbProfiles.length === 0) await saveProfilesToDb(starterProfiles);
+
+  void backfillMissingDefaultPredictions(profiles, dbPredictions).catch((error) =>
+    logStorageError("Kunde inte skapa saknade standardtips.", error),
+  );
+
+  return {
+    profiles,
+    predictionsByProfile: mergePredictionsWithDefaults(profiles, dbPredictions),
+    bonusByProfile: dbBonus,
+    results: dbResults.results,
+    resultWinners: dbResults.resultWinners,
+    lockedDates: dbLockedDates,
+    lockedMatchIds: dbLockedMatchIds,
+    officialBonusAnswers: dbOfficialBonus,
+  };
+}
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("Hem");
   const [predictions, setPredictions] = useState<Prediction[]>(defaultPredictions);
@@ -981,6 +1048,8 @@ export default function Home() {
   const [winnersModalDismissed, setWinnersModalDismissed] = useState(false);
   const [homePreviewDate, setHomePreviewDate] = useState("");
   const [clockTick, setClockTick] = useState(() => Date.now());
+  const [databaseSyncMessage, setDatabaseSyncMessage] = useState("");
+  const [isDatabaseSyncing, setIsDatabaseSyncing] = useState(false);
   const [bonusAnswers, setBonusAnswers] = useState<BonusPrediction>(defaultBonusAnswers);
   const [officialBonusAnswers, setOfficialBonusAnswers] = useState<BonusPrediction>(defaultBonusAnswers);
   const [allPredictionsByProfile, setAllPredictionsByProfile] = useState<Record<string, Prediction[]>>({});
@@ -993,22 +1062,37 @@ export default function Home() {
   const resultWinnersRef = useRef<Record<number, string>>({});
   const lockedDatesRef = useRef<string[]>([]);
   const lockedMatchIdsRef = useRef<number[]>([]);
+  const suppressRemoteAutosaveRef = useRef(false);
   const lastMatchSyncAtRef = useRef(0);
-  const dirtyPredictionIdsByProfileRef = useRef<Record<string, Set<number>>>({});
-  const clearedPredictionIdsByProfileRef = useRef<Record<string, Set<number>>>({});
+  const dirtyResultIdsRef = useRef<Set<number>>(new Set());
+  const predictionEditVersionRef = useRef(0);
 
-  function markPredictionDirty(matchId: number) {
-    if (!currentProfile) return;
-    dirtyPredictionIdsByProfileRef.current[currentProfile.id] ??= new Set();
-    dirtyPredictionIdsByProfileRef.current[currentProfile.id].add(matchId);
+  const suppressRemoteAutosaveBriefly = useCallback(() => {
+    suppressRemoteAutosaveRef.current = true;
+    window.setTimeout(() => {
+      suppressRemoteAutosaveRef.current = false;
+    }, 750);
+  }, []);
+
+  function markPredictionDirty() {
+    predictionEditVersionRef.current += 1;
   }
 
-  function markPredictionCleared(matchId: number) {
-    if (!currentProfile) return;
-    markPredictionDirty(matchId);
-    clearedPredictionIdsByProfileRef.current[currentProfile.id] ??= new Set();
-    clearedPredictionIdsByProfileRef.current[currentProfile.id].add(matchId);
+  function markResultDirty(matchId: number) {
+    dirtyResultIdsRef.current.add(matchId);
   }
+
+  const refreshProfilePredictions = useCallback(async (profileId: string, options: { forceApply?: boolean } = {}) => {
+    const editVersionAtStart = predictionEditVersionRef.current;
+    const dbPredictions = await loadPredictionsFromDb(profileId);
+    const saved = mergeProfilePredictionsWithDefaults(dbPredictions);
+    if (!options.forceApply && editVersionAtStart !== predictionEditVersionRef.current) return saved;
+    suppressRemoteAutosaveBriefly();
+    setPredictions(saved);
+    setAllPredictionsByProfile((current) => ({ ...current, [profileId]: saved }));
+    setLoadedProfileId(profileId);
+    return saved;
+  }, [suppressRemoteAutosaveBriefly]);
 
   useEffect(() => {
     allPredictionsRef.current = allPredictionsByProfile;
@@ -1037,7 +1121,46 @@ export default function Home() {
   useEffect(() => {
     const timer = window.setInterval(() => setClockTick(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [suppressRemoteAutosaveBriefly]);
+
+  async function refreshSupabaseData() {
+    if (!isSupabaseEnabled) {
+      setDatabaseSyncMessage("Supabase är inte konfigurerat.");
+      return;
+    }
+
+    setIsDatabaseSyncing(true);
+    try {
+      const snapshot = await loadSupabaseSnapshot();
+      const refreshedCurrentProfile = currentProfile ? snapshot.profiles.find((profile) => profile.id === currentProfile.id) : undefined;
+
+      suppressRemoteAutosaveBriefly();
+      setProfiles(snapshot.profiles);
+      setAllPredictionsByProfile(snapshot.predictionsByProfile);
+      setAllBonusByProfile(snapshot.bonusByProfile);
+      setResults(snapshot.results);
+      setResultWinners(snapshot.resultWinners);
+      setLockedDates(snapshot.lockedDates);
+      setLockedMatchIds(snapshot.lockedMatchIds);
+      setOfficialBonusAnswers(snapshot.officialBonusAnswers);
+      setStorageMode("supabase");
+      setIsDatabaseLoaded(true);
+
+      if (currentProfile) {
+        if (refreshedCurrentProfile) setCurrentProfile(refreshedCurrentProfile);
+        setPredictions(snapshot.predictionsByProfile[currentProfile.id] ?? defaultPredictions);
+        setBonusAnswers(snapshot.bonusByProfile[currentProfile.id] ?? defaultBonusAnswers);
+        setLoadedProfileId(currentProfile.id);
+      }
+
+      setDatabaseSyncMessage(`Databas synkad ${new Date().toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}`);
+    } catch (error) {
+      setDatabaseSyncMessage("Kunde inte läsa från Supabase.");
+      logStorageError("Kunde inte synka från Supabase.", error);
+    } finally {
+      setIsDatabaseSyncing(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1045,31 +1168,25 @@ export default function Home() {
     async function loadInitialData() {
       if (isSupabaseEnabled) {
         try {
-          const [dbProfiles, dbPredictions, dbBonus, dbResults, dbLockedDates, dbLockedMatchIds, dbOfficialBonus] = await Promise.all([
-            loadProfilesFromDb(),
-            loadAllPredictionsFromDb(),
-            loadAllBonusFromDb(),
-            loadResultsFromDb(),
-            loadAppStateFromDb<string[]>("locked_dates", []),
-            loadAppStateFromDb<number[]>("locked_match_ids", []),
-            loadAppStateFromDb<BonusPrediction>("official_bonus", defaultBonusAnswers),
-          ]);
+          const snapshot = await loadSupabaseSnapshot();
 
           if (cancelled) return;
 
-          const nextProfiles = dbProfiles.length > 0 ? dbProfiles : starterProfiles;
-          if (dbProfiles.length === 0) await saveProfilesToDb(starterProfiles);
-
-          setProfiles(nextProfiles);
-          setAllPredictionsByProfile(dbPredictions);
-          setAllBonusByProfile(dbBonus);
-          setResults(dbResults.results);
-          setResultWinners(dbResults.resultWinners);
-          setLockedDates(dbLockedDates);
-          setLockedMatchIds(dbLockedMatchIds);
-          setOfficialBonusAnswers(dbOfficialBonus);
+          suppressRemoteAutosaveBriefly();
+          setProfiles(snapshot.profiles);
+          setAllPredictionsByProfile(snapshot.predictionsByProfile);
+          setAllBonusByProfile(snapshot.bonusByProfile);
+          setResults(snapshot.results);
+          setResultWinners(snapshot.resultWinners);
+          setLockedDates(snapshot.lockedDates);
+          setLockedMatchIds(snapshot.lockedMatchIds);
+          setOfficialBonusAnswers(snapshot.officialBonusAnswers);
           setStorageMode("supabase");
           setIsDatabaseLoaded(true);
+
+          const activeProfileId = window.localStorage.getItem("vm-tipset-active-profile");
+          const activeProfile = snapshot.profiles.find((profile) => profile.id === activeProfileId);
+          if (activeProfile) setCurrentProfile(activeProfile);
           return;
         } catch (error) {
           logStorageError("Supabase kunde inte laddas, använder localStorage som fallback.", error);
@@ -1091,11 +1208,12 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [suppressRemoteAutosaveBriefly]);
 
   useEffect(() => {
     if (!isDatabaseLoaded) return;
     if (storageMode === "supabase") {
+      if (suppressRemoteAutosaveRef.current) return;
       saveProfilesToDb(profiles).catch((error) => logStorageError("Kunde inte spara profiler.", error));
       return;
     }
@@ -1105,6 +1223,7 @@ export default function Home() {
   useEffect(() => {
     if (!isDatabaseLoaded) return;
     if (storageMode === "supabase") {
+      if (suppressRemoteAutosaveRef.current) return;
       saveAppStateToDb("locked_dates", lockedDates).catch((error) => logStorageError("Kunde inte spara låsta dagar.", error));
       saveAppStateToDb("locked_match_ids", lockedMatchIds).catch((error) => logStorageError("Kunde inte spara låsta matcher.", error));
       return;
@@ -1116,7 +1235,23 @@ export default function Home() {
   useEffect(() => {
     if (!isDatabaseLoaded) return;
     if (storageMode === "supabase") {
-      saveResultsToDb(results, resultWinners).catch((error) => logStorageError("Kunde inte spara resultat.", error));
+      const dirtyResultIds = [...dirtyResultIdsRef.current];
+      if (suppressRemoteAutosaveRef.current && dirtyResultIds.length === 0) return;
+      if (dirtyResultIds.length === 0) return;
+      dirtyResultIdsRef.current.clear();
+      const dirtyResults = dirtyResultIds.reduce<Record<number, ScoreLine>>((map, matchId) => {
+        if (results[matchId]) map[matchId] = results[matchId];
+        return map;
+      }, {});
+      const dirtyResultWinners = dirtyResultIds.reduce<Record<number, string>>((map, matchId) => {
+        if (resultWinners[matchId]) map[matchId] = resultWinners[matchId];
+        return map;
+      }, {});
+      if (Object.keys(dirtyResults).length === 0) return;
+      saveResultsToDb(dirtyResults, dirtyResultWinners).catch((error) => {
+        dirtyResultIds.forEach((matchId) => dirtyResultIdsRef.current.add(matchId));
+        logStorageError("Kunde inte spara resultat.", error);
+      });
       return;
     }
     window.localStorage.setItem("vm-tipset-results", JSON.stringify(results));
@@ -1125,50 +1260,53 @@ export default function Home() {
 
   useEffect(() => {
     if (!currentProfile) return;
+    let cancelled = false;
 
     setLoadedProfileId(undefined);
     window.localStorage.setItem("vm-tipset-active-profile", currentProfile.id);
-    const saved =
-      allPredictionsRef.current[currentProfile.id] ??
-      (window.localStorage.getItem(`vm-tipset-predictions-version-${currentProfile.id}`) === predictionsVersion
-        ? readStoredJson(`vm-tipset-predictions-${currentProfile.id}`, defaultPredictions)
-        : defaultPredictions);
-    setPredictions(saved);
-    const savedBonus =
-      allBonusRef.current[currentProfile.id] ??
-      (window.localStorage.getItem(`vm-tipset-bonus-version-${currentProfile.id}`) === bonusVersion
-        ? readStoredJson(`vm-tipset-bonus-${currentProfile.id}`, defaultBonusAnswers)
-        : defaultBonusAnswers);
-    setBonusAnswers(savedBonus);
-    setLoadedProfileId(currentProfile.id);
+
+    const loadProfileData = async () => {
+      if (storageMode === "supabase" && isDatabaseLoaded) {
+        try {
+          await refreshProfilePredictions(currentProfile.id);
+          if (cancelled) return;
+
+          const savedBonus = allBonusRef.current[currentProfile.id] ?? defaultBonusAnswers;
+          setBonusAnswers(savedBonus);
+          return;
+        } catch (error) {
+          logStorageError("Kunde inte läsa profilens tips från Supabase.", error);
+        }
+      }
+
+      if (cancelled) return;
+      const saved =
+        allPredictionsRef.current[currentProfile.id] ??
+        (window.localStorage.getItem(`vm-tipset-predictions-version-${currentProfile.id}`) === predictionsVersion
+          ? readStoredJson(`vm-tipset-predictions-${currentProfile.id}`, defaultPredictions)
+          : defaultPredictions);
+      setPredictions(saved);
+      const savedBonus =
+        allBonusRef.current[currentProfile.id] ??
+        (window.localStorage.getItem(`vm-tipset-bonus-version-${currentProfile.id}`) === bonusVersion
+          ? readStoredJson(`vm-tipset-bonus-${currentProfile.id}`, defaultBonusAnswers)
+          : defaultBonusAnswers);
+      setBonusAnswers(savedBonus);
+      setLoadedProfileId(currentProfile.id);
+    };
+
+    loadProfileData();
     setActiveTab(currentProfile.role === "admin" ? "Admin" : "Hem");
-  }, [currentProfile]);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProfile, isDatabaseLoaded, refreshProfilePredictions, storageMode]);
 
   useEffect(() => {
     if (!currentProfile || !isDatabaseLoaded) return;
     if (loadedProfileId !== currentProfile.id) return;
     setAllPredictionsByProfile((current) => ({ ...current, [currentProfile.id]: predictions }));
-    const dirtyPredictionSet = dirtyPredictionIdsByProfileRef.current[currentProfile.id];
-    const clearedPredictionSet = clearedPredictionIdsByProfileRef.current[currentProfile.id];
-    const dirtyPredictionIds = [...(dirtyPredictionSet ?? [])];
-    const clearedPredictionIds = [...(clearedPredictionSet ?? [])];
-    const clearedPredictionIdSet = new Set(clearedPredictionIds);
-    if (dirtyPredictionIds.length === 0) return;
-    dirtyPredictionSet?.clear();
-    clearedPredictionSet?.clear();
-
     if (storageMode === "supabase") {
-      const dirtyPredictions = predictions.filter(
-        (prediction) => dirtyPredictionIds.includes(prediction.matchId) && (prediction.score || clearedPredictionIdSet.has(prediction.matchId)),
-      );
-      if (dirtyPredictions.length === 0) return;
-      savePredictionsToDb(currentProfile.id, dirtyPredictions).catch((error) => {
-        dirtyPredictionIdsByProfileRef.current[currentProfile.id] ??= new Set();
-        dirtyPredictionIds.forEach((matchId) => dirtyPredictionIdsByProfileRef.current[currentProfile.id].add(matchId));
-        clearedPredictionIdsByProfileRef.current[currentProfile.id] ??= new Set();
-        clearedPredictionIds.forEach((matchId) => clearedPredictionIdsByProfileRef.current[currentProfile.id].add(matchId));
-        logStorageError("Kunde inte spara tips.", error);
-      });
       return;
     }
     window.localStorage.setItem(`vm-tipset-predictions-${currentProfile.id}`, JSON.stringify(predictions));
@@ -1176,10 +1314,18 @@ export default function Home() {
   }, [currentProfile, isDatabaseLoaded, loadedProfileId, predictions, storageMode]);
 
   useEffect(() => {
+    if (activeTab !== "Tippa") return;
+    const profileId = currentProfile?.id;
+    if (!profileId || !isDatabaseLoaded || storageMode !== "supabase") return;
+    refreshProfilePredictions(profileId).catch((error) => logStorageError("Kunde inte läsa in tips från Supabase.", error));
+  }, [activeTab, currentProfile?.id, isDatabaseLoaded, refreshProfilePredictions, storageMode]);
+
+  useEffect(() => {
     if (!currentProfile || !isDatabaseLoaded) return;
     if (loadedProfileId !== currentProfile.id) return;
     setAllBonusByProfile((current) => ({ ...current, [currentProfile.id]: bonusAnswers }));
     if (storageMode === "supabase") {
+      if (suppressRemoteAutosaveRef.current) return;
       saveBonusToDb(currentProfile.id, bonusAnswers).catch((error) => logStorageError("Kunde inte spara bonus.", error));
       return;
     }
@@ -1190,6 +1336,7 @@ export default function Home() {
   useEffect(() => {
     if (!isDatabaseLoaded) return;
     if (storageMode === "supabase") {
+      if (suppressRemoteAutosaveRef.current) return;
       saveAppStateToDb("official_bonus", officialBonusAnswers).catch((error) => logStorageError("Kunde inte spara bonusfacit.", error));
       return;
     }
@@ -1362,7 +1509,7 @@ export default function Home() {
   }, [activeTab, currentProfile?.id]);
 
   function updatePrediction(match: Fixture & Partial<ResolvedKnockoutFixture>, side: "home" | "away", value: number) {
-    markPredictionDirty(match.id);
+    markPredictionDirty();
     setPredictions((current) => {
       const existingPrediction = current.find((prediction) => prediction.matchId === match.id);
       if (isFixtureLocked(match, lockedDates, lockedMatchIds) && existingPrediction?.score) return current;
@@ -1393,13 +1540,16 @@ export default function Home() {
   }
 
   function updatePredictionWinner(match: Fixture, winner: string) {
-    markPredictionDirty(match.id);
+    markPredictionDirty();
     setPredictions((current) => {
       const existingPrediction = current.find((prediction) => prediction.matchId === match.id);
       if (isFixtureLocked(match, lockedDates, lockedMatchIds) && existingPrediction?.score) return current;
 
       if (current.some((prediction) => prediction.matchId === match.id)) {
-        return current.map((prediction) => (prediction.matchId === match.id ? { ...prediction, winner } : prediction));
+        return current.map((prediction) => {
+          if (prediction.matchId !== match.id) return prediction;
+          return { ...prediction, winner };
+        });
       }
 
       return [...current, { matchId: match.id, winner }];
@@ -1415,20 +1565,24 @@ export default function Home() {
     setOfficialBonusAnswers((current) => updateBonusValue(current, key, value));
   }
 
-  function resetCurrentPredictions() {
-    const confirmed = window.confirm("Vill du tömma alla olåsta matcher i ditt tips?");
-    if (!confirmed) return;
+  function saveCurrentPredictions() {
+    if (!currentProfile) return;
+    if (storageMode === "supabase") {
+      savePredictionsToDb(currentProfile.id, predictions, { allowEmptyScores: true })
+        .then(() => refreshProfilePredictions(currentProfile.id, { forceApply: true }))
+        .then(() => {
+          window.alert("Tipset är sparat.");
+        })
+        .catch((error) => {
+          logStorageError("Kunde inte spara tips.", error);
+          window.alert("Kunde inte spara tipset. Försök igen.");
+        });
+      return;
+    }
 
-    fixtures.forEach((fixture) => {
-      if (!isFixtureLocked(fixture, lockedDates, lockedMatchIds)) markPredictionCleared(fixture.id);
-    });
-    setPredictions((current) =>
-      current.map((prediction) => {
-        const fixture = fixtures.find((match) => match.id === prediction.matchId);
-        if (fixture && isFixtureLocked(fixture, lockedDates, lockedMatchIds)) return prediction;
-        return { matchId: prediction.matchId, winner: fixture?.stage === "Gruppspel" ? "Ej tippat" : "Ej valt" };
-      }),
-    );
+    window.localStorage.setItem(`vm-tipset-predictions-${currentProfile.id}`, JSON.stringify(predictions));
+    window.localStorage.setItem(`vm-tipset-predictions-version-${currentProfile.id}`, predictionsVersion);
+    window.alert("Tipset är sparat.");
   }
 
   function randomizeDevData() {
@@ -1553,7 +1707,7 @@ export default function Home() {
     if (!confirmed) return;
 
     if (storageMode === "supabase") {
-      saveResultsToDb({}, {}).catch((error) => logStorageError("Kunde nollställa adminresultat.", error));
+      saveResultsToDb({}, {}, { allowDeleteAll: true }).catch((error) => logStorageError("Kunde nollställa adminresultat.", error));
       saveAppStateToDb("locked_dates", []).catch((error) => logStorageError("Kunde nollställa låsta dagar.", error));
       saveAppStateToDb("locked_match_ids", []).catch((error) => logStorageError("Kunde nollställa låsta matcher.", error));
     } else {
@@ -1574,7 +1728,7 @@ export default function Home() {
     if (!confirmed) return;
 
     if (storageMode === "supabase") {
-      saveResultsToDb({}, {}).catch((error) => logStorageError("Kunde nollställa adminresultat.", error));
+      saveResultsToDb({}, {}, { allowDeleteAll: true }).catch((error) => logStorageError("Kunde nollställa adminresultat.", error));
       saveAppStateToDb("locked_dates", []).catch((error) => logStorageError("Kunde nollställa låsta dagar.", error));
       saveAppStateToDb("locked_match_ids", []).catch((error) => logStorageError("Kunde nollställa låsta matcher.", error));
       saveAppStateToDb("official_bonus", defaultBonusAnswers).catch((error) => logStorageError("Kunde nollställa bonusfacit.", error));
@@ -1617,6 +1771,7 @@ export default function Home() {
   }
 
   function updateResult(matchId: number, side: "home" | "away", value: number) {
+    markResultDirty(matchId);
     setResults((current) => ({
       ...current,
       [matchId]: { ...(current[matchId] ?? { home: 0, away: 0 }), [side]: Number.isNaN(value) ? 0 : value },
@@ -1624,6 +1779,7 @@ export default function Home() {
   }
 
   function updateResultWinner(matchId: number, winner: string) {
+    markResultDirty(matchId);
     setResultWinners((current) => {
       const next = { ...current };
       if (winner) next[matchId] = winner;
@@ -1694,9 +1850,14 @@ export default function Home() {
     setAllPredictionsByProfile((current) => ({ ...current, [profile.id]: defaultPredictions }));
     setAllBonusByProfile((current) => ({ ...current, [profile.id]: defaultBonusAnswers }));
     if (storageMode === "supabase") {
-      saveProfilesToDb([...profiles, profile]).catch((error) => logStorageError("Kunde inte skapa spelare.", error));
-      savePredictionsToDb(profile.id, defaultPredictions).catch((error) => logStorageError("Kunde inte skapa standardtips.", error));
-      saveBonusToDb(profile.id, defaultBonusAnswers).catch((error) => logStorageError("Kunde inte skapa bonusrad.", error));
+      saveProfilesToDb([...profiles, profile])
+        .then(() =>
+          Promise.all([
+            savePredictionsToDb(profile.id, defaultPredictions, { allowEmptyScores: true }),
+            saveBonusToDb(profile.id, defaultBonusAnswers),
+          ]),
+        )
+        .catch((error) => logStorageError("Kunde inte skapa spelare.", error));
     }
     setCurrentProfile(profile);
     setNewPlayerName("");
@@ -1912,7 +2073,7 @@ export default function Home() {
               onChange={updatePrediction}
               onWinnerChange={updatePredictionWinner}
               onBonusChange={updateBonusAnswer}
-              onResetPredictions={resetCurrentPredictions}
+              onSavePredictions={saveCurrentPredictions}
             />
           )}
           {activeTab === "Grupper" && (
@@ -1961,6 +2122,9 @@ export default function Home() {
               toggleLockedDate={toggleLockedDate}
               toggleLockedMatch={toggleLockedMatch}
               matchSyncMessage={matchSyncMessage}
+              databaseSyncMessage={databaseSyncMessage}
+              isDatabaseSyncing={isDatabaseSyncing}
+              refreshSupabaseData={refreshSupabaseData}
               homePreviewDate={homePreviewDate}
               setHomePreviewDate={setHomePreviewDate}
               officialBonusAnswers={officialBonusAnswers}
@@ -2773,7 +2937,7 @@ function PredictionsPanel({
   onChange,
   onWinnerChange,
   onBonusChange,
-  onResetPredictions,
+  onSavePredictions,
 }: {
   predictions: Prediction[];
   actualResults: Record<number, ScoreLine>;
@@ -2785,7 +2949,7 @@ function PredictionsPanel({
   onChange: (match: Fixture, side: "home" | "away", value: number) => void;
   onWinnerChange: (match: Fixture, winner: string) => void;
   onBonusChange: (key: keyof BonusPrediction, value: string) => void;
-  onResetPredictions: () => void;
+  onSavePredictions: () => void;
 }) {
   const predictionMap = new Map(predictions.map((prediction) => [prediction.matchId, prediction]));
   const [tipMode, setTipMode] = useState<"menu" | "group" | "knockout">("menu");
@@ -3020,14 +3184,14 @@ function PredictionsPanel({
               </label>
             ))}
           </div>
-          <div className="mt-6 rounded-3xl border border-coral/20 bg-coral/10 p-4">
-            <h3 className="font-display text-lg font-black text-white">Nollställ tips</h3>
-            <p className="mt-1 text-sm text-white/60">Tömmer alla olåsta matcher för din profil.</p>
+          <div className="mt-6 rounded-3xl border border-volt/20 bg-volt/10 p-4">
+            <h3 className="font-display text-lg font-black text-white">Spara tips</h3>
+            <p className="mt-1 text-sm text-white/60">Sparar alla matcher för din profil.</p>
             <button
-              onClick={onResetPredictions}
-              className="mt-4 w-full rounded-2xl bg-coral px-4 py-3 font-display font-black text-white transition hover:brightness-110"
+              onClick={onSavePredictions}
+              className="mt-4 w-full rounded-2xl bg-volt px-4 py-3 font-display font-black text-pitch transition hover:brightness-110"
             >
-              Nollställ mitt tips
+              Spara tips
             </button>
           </div>
         </div>
@@ -3740,6 +3904,9 @@ function AdminPanel({
   toggleLockedDate,
   toggleLockedMatch,
   matchSyncMessage,
+  databaseSyncMessage,
+  isDatabaseSyncing,
+  refreshSupabaseData,
   homePreviewDate,
   setHomePreviewDate,
   officialBonusAnswers,
@@ -3768,6 +3935,9 @@ function AdminPanel({
   toggleLockedDate: (date: string) => void;
   toggleLockedMatch: (matchId: number) => void;
   matchSyncMessage: string;
+  databaseSyncMessage: string;
+  isDatabaseSyncing: boolean;
+  refreshSupabaseData: () => void;
   homePreviewDate: string;
   setHomePreviewDate: (date: string) => void;
   officialBonusAnswers: BonusPrediction;
@@ -3808,6 +3978,17 @@ function AdminPanel({
           <p className="rounded-full bg-coral/10 px-4 py-2 text-sm font-bold text-coral">
             {Object.keys(results).length}/104 resultat
           </p>
+          <button
+            type="button"
+            onClick={refreshSupabaseData}
+            disabled={isDatabaseSyncing}
+            className="rounded-full bg-volt px-4 py-2 text-sm font-black text-pitch transition hover:bg-volt/85 disabled:cursor-wait disabled:opacity-60"
+          >
+            {isDatabaseSyncing ? "Synkar..." : "Synka Supabase"}
+          </button>
+          {databaseSyncMessage ? (
+            <p className="rounded-full bg-white/10 px-4 py-2 text-sm font-bold text-white/65">{databaseSyncMessage}</p>
+          ) : null}
           {matchSyncMessage ? (
             <p className="rounded-full bg-white/10 px-4 py-2 text-sm font-bold text-white/65">{matchSyncMessage}</p>
           ) : null}
@@ -3912,9 +4093,21 @@ function AdminPanel({
                       >
                         {isLocked ? "Låst" : "Lås"}
                       </button>
-                      <input type="number" min={0} value={results[match.id]?.home ?? 0} onChange={(event) => updateResult(match.id, "home", Number(event.target.value))} className="h-11 w-14 rounded-2xl bg-black/30 text-center font-black outline-none focus:ring-2 focus:ring-coral" />
+                      <input
+                        type="number"
+                        min={0}
+                        value={results[match.id]?.home ?? ""}
+                        onChange={(event) => updateResult(match.id, "home", Number(event.target.value))}
+                        className="h-11 w-14 rounded-2xl bg-black/30 text-center font-black outline-none focus:ring-2 focus:ring-coral"
+                      />
                       <span>-</span>
-                      <input type="number" min={0} value={results[match.id]?.away ?? 0} onChange={(event) => updateResult(match.id, "away", Number(event.target.value))} className="h-11 w-14 rounded-2xl bg-black/30 text-center font-black outline-none focus:ring-2 focus:ring-coral" />
+                      <input
+                        type="number"
+                        min={0}
+                        value={results[match.id]?.away ?? ""}
+                        onChange={(event) => updateResult(match.id, "away", Number(event.target.value))}
+                        className="h-11 w-14 rounded-2xl bg-black/30 text-center font-black outline-none focus:ring-2 focus:ring-coral"
+                      />
                       {match.stage !== "Gruppspel" ? (
                         <select
                           value={selectedWinner}

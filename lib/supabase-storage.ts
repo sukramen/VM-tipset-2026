@@ -222,7 +222,11 @@ export async function loadResultsFromDb() {
   );
 }
 
-export async function saveResultsToDb(results: Record<number, ScoreLine>, resultWinners: Record<number, string>) {
+export async function saveResultsToDb(
+  results: Record<number, ScoreLine>,
+  resultWinners: Record<number, string>,
+  options: { allowDeleteAll?: boolean } = {},
+) {
   if (!supabase) return;
   const rows = Object.entries(results).map(([matchId, score]) => ({
     match_id: Number(matchId),
@@ -233,6 +237,7 @@ export async function saveResultsToDb(results: Record<number, ScoreLine>, result
   await enqueueWrite("match-results", () =>
     withRetryOnWriteConflict(async () => {
       if (rows.length === 0) {
+        if (!options.allowDeleteAll) return;
         const { error } = await supabase.from("vm_match_results").delete().neq("match_id", -1);
         if (error) throw error;
         return;
