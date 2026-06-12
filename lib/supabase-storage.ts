@@ -16,6 +16,7 @@ const toJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 const retryablePostgresCodes = new Set(["40P01", "40001"]);
 const writeQueues = new Map<string, Promise<unknown>>();
+const supabasePageSize = 1000;
 
 function getErrorCode(error: unknown) {
   return typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : undefined;
@@ -147,9 +148,23 @@ export async function loadPredictionsFromDb(profileId: string) {
 
 export async function loadAllPredictionsFromDb() {
   if (!supabase) return {};
-  const { data, error } = await supabase.from("vm_predictions").select("*");
-  if (error) throw error;
-  return (data as PredictionRow[]).reduce<Record<string, Prediction[]>>((map, row) => {
+  const rows: PredictionRow[] = [];
+
+  for (let from = 0; ; from += supabasePageSize) {
+    const { data, error } = await supabase
+      .from("vm_predictions")
+      .select("*")
+      .order("profile_id", { ascending: true })
+      .order("match_id", { ascending: true })
+      .range(from, from + supabasePageSize - 1);
+    if (error) throw error;
+
+    const page = (data ?? []) as PredictionRow[];
+    rows.push(...page);
+    if (page.length < supabasePageSize) break;
+  }
+
+  return rows.reduce<Record<string, Prediction[]>>((map, row) => {
     map[row.profile_id] ??= [];
     map[row.profile_id].push({
       matchId: row.match_id,
