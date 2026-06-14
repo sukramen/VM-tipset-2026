@@ -2065,6 +2065,9 @@ export default function Home() {
               topThree={topThree}
               dailyScoreData={dailyScoreData}
               matchDayPanel={matchDayPanel}
+              results={results}
+              lockedDates={lockedDates}
+              lockedMatchIds={lockedMatchIds}
               phaseStatus={phaseStatus}
               tournamentCountdown={tournamentCountdown}
               onOpenStats={() => setActiveTab("Statistik")}
@@ -2387,6 +2390,9 @@ function Dashboard({
   topThree,
   dailyScoreData,
   matchDayPanel,
+  results,
+  lockedDates,
+  lockedMatchIds,
   phaseStatus,
   tournamentCountdown,
   onOpenStats,
@@ -2395,6 +2401,9 @@ function Dashboard({
   topThree: UserScore[];
   dailyScoreData: DailyScoreDay[];
   matchDayPanel: { label: string; date: string; matches: Fixture[] };
+  results: Record<number, ScoreLine>;
+  lockedDates: string[];
+  lockedMatchIds: number[];
   phaseStatus: ReturnType<typeof getPhaseStatus>;
   tournamentCountdown: ReturnType<typeof getTournamentCountdown>;
   onOpenStats: () => void;
@@ -2472,13 +2481,24 @@ function Dashboard({
             <p className="shrink-0 rounded-full bg-white/10 px-3 py-1 text-sm text-white/60">{matchDayPanel.matches.length}</p>
           </div>
           <div className="mt-4 space-y-2">
-            {matchDayPanel.matches.map((match) => (
-              <div key={match.id} className="rounded-2xl bg-white/5 p-3">
-                <p className="font-display text-lg font-black text-volt">{match.kickoffTime}</p>
-                <p className="mt-1 truncate font-bold"><TeamLabel team={match.home} /></p>
-                <p className="truncate font-bold"><TeamLabel team={match.away} /></p>
-              </div>
-            ))}
+            {matchDayPanel.matches.map((match) => {
+              const result = isFixtureLocked(match, lockedDates, lockedMatchIds) ? results[match.id] : undefined;
+
+              return (
+                <div key={match.id} className="rounded-2xl bg-white/5 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-display text-lg font-black text-volt">{match.kickoffTime}</p>
+                    {result ? (
+                      <p className="rounded-full bg-volt/10 px-3 py-1 font-display text-lg font-black text-volt">
+                        {formatScoreLine(result)}
+                      </p>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 truncate font-bold"><TeamLabel team={match.home} /></p>
+                  <p className="truncate font-bold"><TeamLabel team={match.away} /></p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -2551,14 +2571,20 @@ function Dashboard({
             <p className="rounded-full bg-white/10 px-3 py-1 text-sm text-white/60">{matchDayPanel.matches.length}</p>
           </div>
           <div className="mt-4 space-y-3">
-            {matchDayPanel.matches.map((match) => (
-              <div key={match.id} className="grid grid-cols-[48px_1fr] gap-2 rounded-2xl bg-white/5 p-3 text-sm sm:grid-cols-[52px_1fr_auto_1fr] sm:items-center">
-                <span className="font-display font-black text-volt">{match.kickoffTime}</span>
-                <span className="font-bold"><TeamLabel team={match.home} /></span>
-                <span className="hidden text-white/40 sm:block">vs</span>
-                <span className="col-start-2 font-bold sm:col-auto sm:text-right"><TeamLabel team={match.away} /></span>
-              </div>
-            ))}
+            {matchDayPanel.matches.map((match) => {
+              const result = isFixtureLocked(match, lockedDates, lockedMatchIds) ? results[match.id] : undefined;
+
+              return (
+                <div key={match.id} className="grid grid-cols-[48px_1fr] gap-2 rounded-2xl bg-white/5 p-3 text-sm sm:grid-cols-[52px_1fr_auto_1fr] sm:items-center">
+                  <span className="font-display font-black text-volt">{match.kickoffTime}</span>
+                  <span className="font-bold"><TeamLabel team={match.home} /></span>
+                  <span className={classNames("hidden font-display font-black sm:block", result ? "text-volt" : "text-white/40")}>
+                    {result ? formatScoreLine(result) : "vs"}
+                  </span>
+                  <span className="col-start-2 font-bold sm:col-auto sm:text-right"><TeamLabel team={match.away} /></span>
+                </div>
+              );
+            })}
           </div>
         </div>
         </aside>
