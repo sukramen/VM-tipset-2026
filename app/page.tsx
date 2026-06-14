@@ -650,15 +650,40 @@ function getOpenKnockoutStages(lockedDates: string[], lockedMatchIds: number[] =
   return (["Bronsmatch", "Final"] as MatchStage[]).filter((stage) => !stageIsLocked(stage, lockedDates, lockedMatchIds));
 }
 
-function stageHasCompleteResults(stage: MatchStage, results: Record<number, ScoreLine>, resultWinners: Record<number, string> = {}) {
-  return fixtures
-    .filter((match) => match.stage === stage)
-    .every((match) => {
-      const result = results[match.id];
-      if (!result) return false;
-      if (stage === "Gruppspel") return true;
-      return result.home !== result.away || Boolean(resultWinners[match.id]);
-    });
+function groupHasCompleteResults(group: GroupLetter, results: Record<number, ScoreLine>) {
+  return fixtures.filter((match) => match.stage === "Gruppspel" && match.group === group).every((match) => Boolean(results[match.id]));
+}
+
+function completedGroupResults(results: Record<number, ScoreLine>) {
+  return new Set(groupLetters.filter((group) => groupHasCompleteResults(group, results)));
+}
+
+function hasAnyCompleteGroupResults(results: Record<number, ScoreLine>) {
+  return completedGroupResults(results).size > 0;
+}
+
+function isKnockoutPlaceholder(value: string) {
+  return /^(Vinnare|Förlorare|Tvåa|Bästa trea)\b/.test(value);
+}
+
+function isResolvedKnockoutMatch(match: Fixture & { resolvedHome?: string; resolvedAway?: string }) {
+  return !isKnockoutPlaceholder(match.resolvedHome ?? match.home) && !isKnockoutPlaceholder(match.resolvedAway ?? match.away);
+}
+
+function getResolvedActualKnockoutFixtures(
+  results: Record<number, ScoreLine>,
+  resultWinners: Record<number, string>,
+  lockedDates: string[],
+  lockedMatchIds: number[] = [],
+) {
+  return buildResolvedKnockoutFixtures({
+    sourceResults: results,
+    lockedDates,
+    lockedMatchIds,
+    resolveGroupTeams: hasAnyCompleteGroupResults(results),
+    useSourceResultsForAdvancement: true,
+    advancementWinners: resultWinners,
+  });
 }
 
 function getOpenActualKnockoutStages(
@@ -667,17 +692,10 @@ function getOpenActualKnockoutStages(
   lockedDates: string[],
   lockedMatchIds: number[] = [],
 ): MatchStage[] {
-  if (!stageHasCompleteResults("Gruppspel", results, resultWinners)) return [];
-  if (!stageIsLocked("Sextondelsfinal", lockedDates, lockedMatchIds)) return ["Sextondelsfinal"];
-  if (!stageHasCompleteResults("Sextondelsfinal", results, resultWinners)) return [];
-  if (!stageIsLocked("Åttondelsfinal", lockedDates, lockedMatchIds)) return ["Åttondelsfinal"];
-  if (!stageHasCompleteResults("Åttondelsfinal", results, resultWinners)) return [];
-  if (!stageIsLocked("Kvartsfinal", lockedDates, lockedMatchIds)) return ["Kvartsfinal"];
-  if (!stageHasCompleteResults("Kvartsfinal", results, resultWinners)) return [];
-  if (!stageIsLocked("Semifinal", lockedDates, lockedMatchIds)) return ["Semifinal"];
-  if (!stageHasCompleteResults("Semifinal", results, resultWinners)) return [];
-
-  return (["Bronsmatch", "Final"] as MatchStage[]).filter((stage) => !stageIsLocked(stage, lockedDates, lockedMatchIds));
+  const resolvedKnockout = getResolvedActualKnockoutFixtures(results, resultWinners, lockedDates, lockedMatchIds);
+  return stageOrder.filter((stage) =>
+    resolvedKnockout.some((match) => match.stage === stage && !isFixtureLocked(match, lockedDates, lockedMatchIds) && isResolvedKnockoutMatch(match)),
+  );
 }
 
 function getPhaseStatus(lockedDates: string[], lockedMatchIds: number[] = []) {
@@ -710,15 +728,25 @@ function resolveKnockoutTeam(
   standingsByGroup: Record<GroupLetter, ReturnType<typeof buildStandings>>,
   thirdRank: ReturnType<typeof rankThirdPlaced>,
   usedThirdGroups?: Set<GroupLetter>,
+  options?: { completedGroups: Set<GroupLetter>; allGroupResultsAvailable: boolean },
 ) {
   const groupWinner = slot.match(/^Vinnare grupp ([A-L])$/);
-  if (groupWinner) return standingsByGroup[groupWinner[1] as GroupLetter]?.[0]?.team ?? slot;
+  if (groupWinner) {
+    const group = groupWinner[1] as GroupLetter;
+    if (options && !options.completedGroups.has(group)) return slot;
+    return standingsByGroup[group]?.[0]?.team ?? slot;
+  }
 
   const groupRunnerUp = slot.match(/^Tvåa grupp ([A-L])$/);
-  if (groupRunnerUp) return standingsByGroup[groupRunnerUp[1] as GroupLetter]?.[1]?.team ?? slot;
+  if (groupRunnerUp) {
+    const group = groupRunnerUp[1] as GroupLetter;
+    if (options && !options.completedGroups.has(group)) return slot;
+    return standingsByGroup[group]?.[1]?.team ?? slot;
+  }
 
   const bestThird = slot.match(/^Bästa trea ([A-L]+)$/);
   if (bestThird) {
+    if (options && !options.allGroupResultsAvailable) return slot;
     const slotKey = bestThird[1];
     const qualifiedThirdGroups = thirdRank
       .slice(0, 8)
@@ -799,6 +827,13 @@ function buildResolvedKnockoutFixtures({
     return map;
   }, {} as Record<GroupLetter, ReturnType<typeof buildStandings>>);
   const thirdRank = rankThirdPlaced(sourceResults);
+  const completedGroups = completedGroupResults(sourceResults);
+  const resolutionOptions = forceResolveAll
+    ? undefined
+    : {
+        completedGroups,
+        allGroupResultsAvailable: completedGroups.size === groupLetters.length,
+      };
   const predictionMap = new Map(predictions.map((prediction) => [prediction.matchId, prediction]));
   const scoreByMatchId = new Map(
     fixtures.slice(72).map((match) => [
@@ -830,7 +865,13 @@ function buildResolvedKnockoutFixtures({
       ...match,
       resolvedHome: canResolveRound
         ? resolveFromMatchSlot(
-            resolveKnockoutTeam(match.home, standingsByGroup, thirdRank, match.stage === "Sextondelsfinal" ? usedThirdGroups : undefined),
+            resolveKnockoutTeam(
+              match.home,
+              standingsByGroup,
+              thirdRank,
+              match.stage === "Sextondelsfinal" ? usedThirdGroups : undefined,
+              resolutionOptions,
+            ),
             resolvedById,
             scoreByMatchId,
             winnerByMatchId,
@@ -838,7 +879,13 @@ function buildResolvedKnockoutFixtures({
         : match.home,
       resolvedAway: canResolveRound
         ? resolveFromMatchSlot(
-            resolveKnockoutTeam(match.away, standingsByGroup, thirdRank, match.stage === "Sextondelsfinal" ? usedThirdGroups : undefined),
+            resolveKnockoutTeam(
+              match.away,
+              standingsByGroup,
+              thirdRank,
+              match.stage === "Sextondelsfinal" ? usedThirdGroups : undefined,
+              resolutionOptions,
+            ),
             resolvedById,
             scoreByMatchId,
             winnerByMatchId,
@@ -3002,8 +3049,9 @@ function PredictionsPanel({
     [predictions],
   );
   const groupStageMatches = fixtures.filter((match) => match.stage === "Gruppspel");
-  const allGroupResultsAvailable = groupStageMatches.every((match) => actualResults[match.id]);
   const actualOpenKnockoutStages = getOpenActualKnockoutStages(actualResults, actualResultWinners, lockedDates, lockedMatchIds);
+  const actualKnockoutMatches = getResolvedActualKnockoutFixtures(actualResults, actualResultWinners, lockedDates, lockedMatchIds);
+  const hasResolvedKnockoutMatches = actualKnockoutMatches.some(isResolvedKnockoutMatch);
   const groupPredictionSummary = groupStageMatches.reduce(
     (summary, match) => {
       const prediction = predictionMap.get(match.id);
@@ -3063,7 +3111,7 @@ function PredictionsPanel({
 
           <button
             onClick={() => setTipMode("knockout")}
-            disabled={!allGroupResultsAvailable}
+            disabled={!hasResolvedKnockoutMatches}
             className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-left transition hover:-translate-y-1 hover:border-flare/50 hover:bg-flare/10 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0 sm:rounded-[2rem] sm:p-6"
           >
             <div className="grid h-14 w-14 place-items-center rounded-2xl bg-flare/15 text-flare">
@@ -3072,9 +3120,9 @@ function PredictionsPanel({
             <p className="mt-6 text-sm uppercase tracking-[0.28em] text-flare">Slutspel</p>
             <h3 className="mt-2 font-display text-3xl font-black">Slutspelsträd</h3>
             <p className="mt-3 text-white/60">
-              {allGroupResultsAvailable
+              {hasResolvedKnockoutMatches
                 ? `Öppen fas: ${actualOpenKnockoutStages.length > 0 ? actualOpenKnockoutStages.join(" & ") : "ingen"}.`
-                : "Låses upp när alla faktiska gruppresultat finns."}
+                : "Öppnas när första slutspelsmatchen har klara lag."}
             </p>
           </button>
         </div>
@@ -3091,7 +3139,7 @@ function PredictionsPanel({
           lockedMatchIds={lockedMatchIds}
           sourceResults={actualResults}
           resultWinners={actualResultWinners}
-          resolveTeams={allGroupResultsAvailable}
+          resolveTeams={hasResolvedKnockoutMatches}
           openKnockoutStages={actualOpenKnockoutStages}
           onBack={() => setTipMode("menu")}
           onChange={onChange}
@@ -3523,13 +3571,22 @@ function KnockoutPredictionPanel({
                 {stageMatches.map((match) => {
                   const prediction = predictionMap.get(match.id);
                   const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
+                  const isMatchResolved = isResolvedKnockoutMatch(match);
                   const hasPredictionScore = Boolean(prediction?.score);
-                  const isRepairableBlankPrediction = Boolean(resolveTeams) && isLocked && !hasPredictionScore;
+                  const isRepairableBlankPrediction = Boolean(resolveTeams) && isMatchResolved && isLocked && !hasPredictionScore;
                   const isOpenStage = openKnockoutStages.includes(match.stage);
-                  const isEditable = (resolveTeams && isOpenStage && !isLocked) || isRepairableBlankPrediction;
+                  const isEditable = (resolveTeams && isMatchResolved && isOpenStage && !isLocked) || isRepairableBlankPrediction;
                   const isDraw = prediction?.score?.home === prediction?.score?.away;
                   const winner = getWinnerLabel(match, prediction?.score, prediction?.winner);
-                  const statusLabel = isRepairableBlankPrediction ? "Fyll i saknat tips" : isLocked ? "Låst" : isEditable ? "Öppen" : "Öppnar senare";
+                  const statusLabel = isRepairableBlankPrediction
+                    ? "Fyll i saknat tips"
+                    : isLocked
+                      ? "Låst"
+                      : isEditable
+                        ? "Öppen"
+                        : isMatchResolved
+                          ? "Öppnar senare"
+                          : "Väntar på lag";
 
                   return (
                     <div
