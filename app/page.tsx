@@ -1014,6 +1014,7 @@ type SupabaseSnapshot = {
   bonusByProfile: Record<string, BonusPrediction>;
   results: Record<number, ScoreLine>;
   resultWinners: Record<number, string>;
+  manualResultOverrideMatchIds: number[];
   lockedDates: string[];
   lockedMatchIds: number[];
   groupStageTipsLocked: boolean;
@@ -1035,7 +1036,17 @@ function mergeProfilePredictionsWithDefaults(savedPredictions: Prediction[]) {
 }
 
 async function loadSupabaseSnapshot(): Promise<SupabaseSnapshot> {
-  const [dbProfiles, dbPredictions, dbBonus, dbResults, dbLockedDates, dbLockedMatchIds, dbGroupStageTipsLocked, dbOfficialBonus] = await Promise.all([
+  const [
+    dbProfiles,
+    dbPredictions,
+    dbBonus,
+    dbResults,
+    dbLockedDates,
+    dbLockedMatchIds,
+    dbGroupStageTipsLocked,
+    dbOfficialBonus,
+    dbManualResultOverrideMatchIds,
+  ] = await Promise.all([
     loadProfilesFromDb(),
     loadAllPredictionsFromDb(),
     loadAllBonusFromDb(),
@@ -1044,6 +1055,7 @@ async function loadSupabaseSnapshot(): Promise<SupabaseSnapshot> {
     loadAppStateFromDb<number[]>("locked_match_ids", []),
     loadAppStateFromDb<boolean>("group_stage_tips_locked", false),
     loadAppStateFromDb<BonusPrediction>("official_bonus", defaultBonusAnswers),
+    loadAppStateFromDb<number[]>("manual_result_override_match_ids", []),
   ]);
 
   const profiles = dbProfiles.length > 0 ? dbProfiles : starterProfiles;
@@ -1055,6 +1067,7 @@ async function loadSupabaseSnapshot(): Promise<SupabaseSnapshot> {
     bonusByProfile: dbBonus,
     results: dbResults.results,
     resultWinners: dbResults.resultWinners,
+    manualResultOverrideMatchIds: dbManualResultOverrideMatchIds,
     lockedDates: dbLockedDates,
     lockedMatchIds: dbLockedMatchIds,
     groupStageTipsLocked: dbGroupStageTipsLocked,
@@ -1078,6 +1091,7 @@ export default function Home() {
   const [authError, setAuthError] = useState("");
   const [lockedDates, setLockedDates] = useState<string[]>([]);
   const [lockedMatchIds, setLockedMatchIds] = useState<number[]>([]);
+  const [manualResultOverrideMatchIds, setManualResultOverrideMatchIds] = useState<number[]>([]);
   const [groupStageTipsLocked, setGroupStageTipsLocked] = useState(false);
   const [matchSyncMessage, setMatchSyncMessage] = useState("");
   const [showWinnersModal, setShowWinnersModal] = useState(false);
@@ -1096,6 +1110,7 @@ export default function Home() {
   const allBonusRef = useRef<Record<string, BonusPrediction>>({});
   const resultsRef = useRef<Record<number, ScoreLine>>({});
   const resultWinnersRef = useRef<Record<number, string>>({});
+  const manualResultOverrideMatchIdsRef = useRef<number[]>([]);
   const lockedDatesRef = useRef<string[]>([]);
   const lockedMatchIdsRef = useRef<number[]>([]);
   const suppressRemoteAutosaveRef = useRef(false);
@@ -1147,6 +1162,10 @@ export default function Home() {
   }, [resultWinners]);
 
   useEffect(() => {
+    manualResultOverrideMatchIdsRef.current = manualResultOverrideMatchIds;
+  }, [manualResultOverrideMatchIds]);
+
+  useEffect(() => {
     lockedDatesRef.current = lockedDates;
   }, [lockedDates]);
 
@@ -1176,6 +1195,7 @@ export default function Home() {
       setAllBonusByProfile(snapshot.bonusByProfile);
       setResults(snapshot.results);
       setResultWinners(snapshot.resultWinners);
+      setManualResultOverrideMatchIds(snapshot.manualResultOverrideMatchIds);
       setLockedDates(snapshot.lockedDates);
       setLockedMatchIds(snapshot.lockedMatchIds);
       setGroupStageTipsLocked(snapshot.groupStageTipsLocked);
@@ -1215,6 +1235,7 @@ export default function Home() {
           setAllBonusByProfile(snapshot.bonusByProfile);
           setResults(snapshot.results);
           setResultWinners(snapshot.resultWinners);
+          setManualResultOverrideMatchIds(snapshot.manualResultOverrideMatchIds);
           setLockedDates(snapshot.lockedDates);
           setLockedMatchIds(snapshot.lockedMatchIds);
           setGroupStageTipsLocked(snapshot.groupStageTipsLocked);
@@ -1235,6 +1256,7 @@ export default function Home() {
       const savedProfiles = readStoredJson<PlayerProfile[] | null>("vm-tipset-profiles", null);
       setLockedDates(readStoredJson("vm-tipset-locked-dates", []));
       setLockedMatchIds(readStoredJson("vm-tipset-locked-match-ids", []));
+      setManualResultOverrideMatchIds(readStoredJson("vm-tipset-manual-result-overrides", []));
       setGroupStageTipsLocked(readStoredJson("vm-tipset-group-stage-tips-locked", false));
       setOfficialBonusAnswers(readStoredJson("vm-tipset-official-bonus", defaultBonusAnswers));
       setResultWinners(readStoredJson("vm-tipset-result-winners", {}));
@@ -1280,6 +1302,18 @@ export default function Home() {
     }
     window.localStorage.setItem("vm-tipset-group-stage-tips-locked", JSON.stringify(groupStageTipsLocked));
   }, [groupStageTipsLocked, isDatabaseLoaded, storageMode]);
+
+  useEffect(() => {
+    if (!isDatabaseLoaded) return;
+    if (storageMode === "supabase") {
+      if (suppressRemoteAutosaveRef.current) return;
+      saveAppStateToDb("manual_result_override_match_ids", manualResultOverrideMatchIds).catch((error) =>
+        logStorageError("Kunde inte spara manuella resultatlås.", error),
+      );
+      return;
+    }
+    window.localStorage.setItem("vm-tipset-manual-result-overrides", JSON.stringify(manualResultOverrideMatchIds));
+  }, [isDatabaseLoaded, manualResultOverrideMatchIds, storageMode]);
 
   useEffect(() => {
     if (!isDatabaseLoaded) return;
@@ -1442,10 +1476,18 @@ export default function Home() {
         const payload = (await response.json()) as MatchSyncPayload;
         if (cancelled) return;
 
-        Object.keys(payload.results).forEach((matchId) => markResultDirty(Number(matchId)));
+        const manualOverrideIds = new Set(manualResultOverrideMatchIdsRef.current);
+        const syncedResults = Object.fromEntries(
+          Object.entries(payload.results).filter(([matchId]) => !manualOverrideIds.has(Number(matchId))),
+        ) as Record<number, ScoreLine>;
+        const syncedResultWinners = Object.fromEntries(
+          Object.entries(payload.resultWinners).filter(([matchId]) => !manualOverrideIds.has(Number(matchId))),
+        ) as Record<number, string>;
+
+        Object.keys(syncedResults).forEach((matchId) => markResultDirty(Number(matchId)));
         setLockedMatchIds((current) => uniqueSortedNumbers([...current, ...payload.lockedMatchIds]));
-        setResults((current) => ({ ...current, ...payload.results }));
-        setResultWinners((current) => ({ ...current, ...payload.resultWinners }));
+        setResults((current) => ({ ...current, ...syncedResults }));
+        setResultWinners((current) => ({ ...current, ...syncedResultWinners }));
         const syncTime = new Date(payload.syncedAt).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
         setMatchSyncMessage(payload.ok ? payload.message ?? `Synkat ${syncTime}` : payload.message ?? "");
       } catch (error) {
@@ -1741,17 +1783,22 @@ export default function Home() {
       saveResultsToDb(randomResults, randomResultWinners).catch((error) => logStorageError("Kunde inte spara slumpade resultat.", error));
       saveAppStateToDb("locked_dates", allLockedDates).catch((error) => logStorageError("Kunde inte spara låsta dagar.", error));
       saveAppStateToDb("locked_match_ids", allLockedMatchIds).catch((error) => logStorageError("Kunde inte spara låsta matcher.", error));
+      saveAppStateToDb("manual_result_override_match_ids", allLockedMatchIds).catch((error) =>
+        logStorageError("Kunde inte spara manuella resultatlås.", error),
+      );
     } else {
       window.localStorage.setItem("vm-tipset-results", JSON.stringify(randomResults));
       window.localStorage.setItem("vm-tipset-result-winners", JSON.stringify(randomResultWinners));
       window.localStorage.setItem("vm-tipset-locked-dates", JSON.stringify(allLockedDates));
       window.localStorage.setItem("vm-tipset-locked-match-ids", JSON.stringify(allLockedMatchIds));
+      window.localStorage.setItem("vm-tipset-manual-result-overrides", JSON.stringify(allLockedMatchIds));
     }
 
     setResults(randomResults);
     setResultWinners(randomResultWinners);
     setLockedDates(allLockedDates);
     setLockedMatchIds(allLockedMatchIds);
+    setManualResultOverrideMatchIds(allLockedMatchIds);
   }
 
   function resetResultsAndLocksOnly() {
@@ -1762,12 +1809,14 @@ export default function Home() {
       saveResultsToDb({}, {}, { allowDeleteAll: true }).catch((error) => logStorageError("Kunde nollställa adminresultat.", error));
       saveAppStateToDb("locked_dates", []).catch((error) => logStorageError("Kunde nollställa låsta dagar.", error));
       saveAppStateToDb("locked_match_ids", []).catch((error) => logStorageError("Kunde nollställa låsta matcher.", error));
+      saveAppStateToDb("manual_result_override_match_ids", []).catch((error) => logStorageError("Kunde nollställa manuella resultatlås.", error));
       saveAppStateToDb("group_stage_tips_locked", false).catch((error) => logStorageError("Kunde nollställa gruppspelslås.", error));
     } else {
       window.localStorage.setItem("vm-tipset-results", JSON.stringify({}));
       window.localStorage.setItem("vm-tipset-result-winners", JSON.stringify({}));
       window.localStorage.setItem("vm-tipset-locked-dates", JSON.stringify([]));
       window.localStorage.setItem("vm-tipset-locked-match-ids", JSON.stringify([]));
+      window.localStorage.setItem("vm-tipset-manual-result-overrides", JSON.stringify([]));
       window.localStorage.setItem("vm-tipset-group-stage-tips-locked", JSON.stringify(false));
     }
 
@@ -1775,6 +1824,7 @@ export default function Home() {
     setResultWinners({});
     setLockedDates([]);
     setLockedMatchIds([]);
+    setManualResultOverrideMatchIds([]);
     setGroupStageTipsLocked(false);
   }
 
@@ -1786,6 +1836,7 @@ export default function Home() {
       saveResultsToDb({}, {}, { allowDeleteAll: true }).catch((error) => logStorageError("Kunde nollställa adminresultat.", error));
       saveAppStateToDb("locked_dates", []).catch((error) => logStorageError("Kunde nollställa låsta dagar.", error));
       saveAppStateToDb("locked_match_ids", []).catch((error) => logStorageError("Kunde nollställa låsta matcher.", error));
+      saveAppStateToDb("manual_result_override_match_ids", []).catch((error) => logStorageError("Kunde nollställa manuella resultatlås.", error));
       saveAppStateToDb("group_stage_tips_locked", false).catch((error) => logStorageError("Kunde nollställa gruppspelslås.", error));
       saveAppStateToDb("official_bonus", defaultBonusAnswers).catch((error) => logStorageError("Kunde nollställa bonusfacit.", error));
     } else {
@@ -1793,6 +1844,7 @@ export default function Home() {
       window.localStorage.setItem("vm-tipset-result-winners", JSON.stringify({}));
       window.localStorage.setItem("vm-tipset-locked-dates", JSON.stringify([]));
       window.localStorage.setItem("vm-tipset-locked-match-ids", JSON.stringify([]));
+      window.localStorage.setItem("vm-tipset-manual-result-overrides", JSON.stringify([]));
       window.localStorage.setItem("vm-tipset-group-stage-tips-locked", JSON.stringify(false));
       window.localStorage.setItem("vm-tipset-official-bonus", JSON.stringify(defaultBonusAnswers));
     }
@@ -1824,11 +1876,13 @@ export default function Home() {
     setResultWinners({});
     setLockedDates([]);
     setLockedMatchIds([]);
+    setManualResultOverrideMatchIds([]);
     setGroupStageTipsLocked(false);
   }
 
   function updateResult(matchId: number, side: "home" | "away", value: number) {
     markResultDirty(matchId);
+    setManualResultOverrideMatchIds((current) => uniqueSortedNumbers([...current, matchId]));
     setResults((current) => ({
       ...current,
       [matchId]: { ...(current[matchId] ?? { home: 0, away: 0 }), [side]: Number.isNaN(value) ? 0 : value },
@@ -1837,12 +1891,17 @@ export default function Home() {
 
   function updateResultWinner(matchId: number, winner: string) {
     markResultDirty(matchId);
+    setManualResultOverrideMatchIds((current) => uniqueSortedNumbers([...current, matchId]));
     setResultWinners((current) => {
       const next = { ...current };
       if (winner) next[matchId] = winner;
       else delete next[matchId];
       return next;
     });
+  }
+
+  function clearManualResultOverride(matchId: number) {
+    setManualResultOverrideMatchIds((current) => current.filter((id) => id !== matchId));
   }
 
   function toggleLockedDate(date: string) {
@@ -2161,8 +2220,10 @@ export default function Home() {
             <AdminPanel
               results={results}
               resultWinners={resultWinners}
+              manualResultOverrideMatchIds={manualResultOverrideMatchIds}
               updateResult={updateResult}
               updateResultWinner={updateResultWinner}
+              clearManualResultOverride={clearManualResultOverride}
               profiles={profiles}
               newPlayerName={newPlayerName}
               setNewPlayerName={setNewPlayerName}
@@ -3984,8 +4045,10 @@ function BracketMatchCard({
 function AdminPanel({
   results,
   resultWinners,
+  manualResultOverrideMatchIds,
   updateResult,
   updateResultWinner,
+  clearManualResultOverride,
   profiles,
   newPlayerName,
   setNewPlayerName,
@@ -4017,8 +4080,10 @@ function AdminPanel({
 }: {
   results: Record<number, ScoreLine>;
   resultWinners: Record<number, string>;
+  manualResultOverrideMatchIds: number[];
   updateResult: (matchId: number, side: "home" | "away", value: number) => void;
   updateResultWinner: (matchId: number, winner: string) => void;
+  clearManualResultOverride: (matchId: number) => void;
   profiles: PlayerProfile[];
   newPlayerName: string;
   setNewPlayerName: (value: string) => void;
@@ -4072,6 +4137,7 @@ function AdminPanel({
     return days;
   }, []);
   const homePreviewMatches = homePreviewDate ? getMatchesByDate(homePreviewDate) : [];
+  const manualResultOverrideIdSet = new Set(manualResultOverrideMatchIds);
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] xl:gap-5">
@@ -4159,6 +4225,7 @@ function AdminPanel({
                   const away = resolvedMatch.resolvedAway ?? match.away;
                   const result = results[match.id];
                   const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
+                  const hasManualOverride = manualResultOverrideIdSet.has(match.id);
                   const selectedWinner =
                     resultWinners[match.id] && [home, away].includes(resultWinners[match.id])
                       ? resultWinners[match.id]
@@ -4176,6 +4243,7 @@ function AdminPanel({
                         Match {match.id}
                         {match.group ? ` · Grupp ${match.group}` : ` · ${match.stage}`}
                         {isLocked ? " · Låst" : ""}
+                        {hasManualOverride ? " · Manuell override" : ""}
                       </p>
                       {match.stage !== "Gruppspel" && (home !== match.home || away !== match.away) ? (
                         <p className="text-xs text-white/35">
@@ -4198,6 +4266,15 @@ function AdminPanel({
                       >
                         {isLocked ? "Låst" : "Lås"}
                       </button>
+                      {hasManualOverride ? (
+                        <button
+                          type="button"
+                          onClick={() => clearManualResultOverride(match.id)}
+                          className="h-11 rounded-2xl bg-flare/15 px-3 text-xs font-bold text-flare transition hover:bg-flare/25"
+                        >
+                          Tillåt API
+                        </button>
+                      ) : null}
                       <input
                         type="number"
                         min={0}
