@@ -1137,6 +1137,18 @@ export default function Home() {
     }
   }
 
+  function updateManualResultOverrideIds(updater: (current: number[]) => number[]) {
+    setManualResultOverrideMatchIds((current) => {
+      const next = updater(current);
+      manualResultOverrideMatchIdsRef.current = next;
+      return next;
+    });
+  }
+
+  function addManualResultOverride(matchId: number) {
+    updateManualResultOverrideIds((current) => uniqueSortedNumbers([...current, matchId]));
+  }
+
   const refreshProfilePredictions = useCallback(async (profileId: string, options: { forceApply?: boolean } = {}) => {
     const editVersionAtStart = predictionEditVersionRef.current;
     const dbPredictions = await loadPredictionsFromDb(profileId);
@@ -1489,13 +1501,12 @@ export default function Home() {
         const payload = (await response.json()) as MatchSyncPayload;
         if (cancelled) return;
 
-        const manualOverrideIds = new Set(manualResultOverrideMatchIdsRef.current);
-        const syncedResults = Object.fromEntries(
-          Object.entries(payload.results).filter(([matchId]) => !manualOverrideIds.has(Number(matchId))),
-        ) as Record<number, ScoreLine>;
-        const syncedResultWinners = Object.fromEntries(
-          Object.entries(payload.resultWinners).filter(([matchId]) => !manualOverrideIds.has(Number(matchId))),
-        ) as Record<number, string>;
+        const getUnprotectedEntries = <T,>(record: Record<number, T>) => {
+          const manualOverrideIds = new Set(manualResultOverrideMatchIdsRef.current);
+          return Object.entries(record).filter(([matchId]) => !manualOverrideIds.has(Number(matchId)));
+        };
+        const syncedResults = Object.fromEntries(getUnprotectedEntries(payload.results)) as Record<number, ScoreLine>;
+        const syncedResultWinners = Object.fromEntries(getUnprotectedEntries(payload.resultWinners)) as Record<number, string>;
 
         if (currentProfile?.role === "admin") {
           Object.keys(syncedResults).forEach((matchId) => markResultDirty(Number(matchId), "api"));
@@ -1898,8 +1909,8 @@ export default function Home() {
   }
 
   function updateResult(matchId: number, side: "home" | "away", value: number) {
+    addManualResultOverride(matchId);
     markResultDirty(matchId);
-    setManualResultOverrideMatchIds((current) => uniqueSortedNumbers([...current, matchId]));
     setResults((current) => ({
       ...current,
       [matchId]: { ...(current[matchId] ?? { home: 0, away: 0 }), [side]: Number.isNaN(value) ? 0 : value },
@@ -1907,8 +1918,8 @@ export default function Home() {
   }
 
   function updateResultWinner(matchId: number, winner: string) {
+    addManualResultOverride(matchId);
     markResultDirty(matchId);
-    setManualResultOverrideMatchIds((current) => uniqueSortedNumbers([...current, matchId]));
     setResultWinners((current) => {
       const next = { ...current };
       if (winner) next[matchId] = winner;
@@ -1918,7 +1929,7 @@ export default function Home() {
   }
 
   function clearManualResultOverride(matchId: number) {
-    setManualResultOverrideMatchIds((current) => current.filter((id) => id !== matchId));
+    updateManualResultOverrideIds((current) => current.filter((id) => id !== matchId));
   }
 
   function toggleLockedDate(date: string) {

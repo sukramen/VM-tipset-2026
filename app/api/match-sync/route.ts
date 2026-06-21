@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { findFixtureByApiTeams, getStartedMatchIds, teamsMatch, type MatchSyncPayload } from "@/lib/match-sync";
+import { loadAppStateFromDb } from "@/lib/supabase-storage";
 import type { ScoreLine } from "@/lib/types";
 
 type FootballDataTeam = {
@@ -165,6 +166,28 @@ function toPayloadFromMatches(apiMatches: FootballDataMatch[], fixturesToMatch?:
   };
 }
 
+function omitMatchIds<T>(record: Record<number, T>, matchIds: Set<number>) {
+  return Object.fromEntries(Object.entries(record).filter(([matchId]) => !matchIds.has(Number(matchId)))) as Record<number, T>;
+}
+
+async function filterManualResultOverrides(payload: MatchSyncPayload): Promise<MatchSyncPayload> {
+  const manualOverrideIds = await loadAppStateFromDb<number[]>("manual_result_override_match_ids", []);
+  if (manualOverrideIds.length === 0) return payload;
+
+  const protectedMatchIds = new Set(manualOverrideIds);
+  const results = omitMatchIds(payload.results, protectedMatchIds);
+  const resultWinners = omitMatchIds(payload.resultWinners, protectedMatchIds);
+  const skippedCount = Object.keys(payload.results).length - Object.keys(results).length;
+  if (skippedCount === 0) return payload;
+
+  return {
+    ...payload,
+    results,
+    resultWinners,
+    message: `${payload.message ?? "Matchresultat synkade."} ${skippedCount} manuellt ändrade resultat hoppades över.`,
+  };
+}
+
 async function getFootballDataMatches(): Promise<FootballDataFetchResult> {
   const now = Date.now();
   if (cachedMatches && now - cachedAt < cacheTtlMs) {
@@ -218,7 +241,7 @@ async function syncFixtures(fixturesToMatch?: MatchSyncFixture[]) {
     return emptyPayload(false, footballData.error, footballData.status);
   }
 
-  const payload = toPayloadFromMatches(footballData.matches, fixturesToMatch);
+  const payload = await filterManualResultOverrides(toPayloadFromMatches(footballData.matches, fixturesToMatch));
   return NextResponse.json(payload);
 }
 
