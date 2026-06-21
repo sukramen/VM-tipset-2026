@@ -1021,6 +1021,8 @@ type SupabaseSnapshot = {
   officialBonusAnswers: BonusPrediction;
 };
 
+type ResultWriteSource = "manual" | "api";
+
 function mergePredictionsWithDefaults(profiles: PlayerProfile[], dbPredictions: Record<string, Prediction[]>) {
   return Object.fromEntries(
     profiles.map((profile) => {
@@ -1115,7 +1117,7 @@ export default function Home() {
   const lockedMatchIdsRef = useRef<number[]>([]);
   const suppressRemoteAutosaveRef = useRef(false);
   const lastMatchSyncAtRef = useRef(0);
-  const dirtyResultIdsRef = useRef<Set<number>>(new Set());
+  const dirtyResultSourcesRef = useRef<Map<number, ResultWriteSource>>(new Map());
   const predictionEditVersionRef = useRef(0);
 
   const suppressRemoteAutosaveBriefly = useCallback(() => {
@@ -1129,8 +1131,10 @@ export default function Home() {
     predictionEditVersionRef.current += 1;
   }
 
-  function markResultDirty(matchId: number) {
-    dirtyResultIdsRef.current.add(matchId);
+  function markResultDirty(matchId: number, source: ResultWriteSource = "manual") {
+    if (source === "manual" || dirtyResultSourcesRef.current.get(matchId) !== "manual") {
+      dirtyResultSourcesRef.current.set(matchId, source);
+    }
   }
 
   const refreshProfilePredictions = useCallback(async (profileId: string, options: { forceApply?: boolean } = {}) => {
@@ -1306,7 +1310,6 @@ export default function Home() {
   useEffect(() => {
     if (!isDatabaseLoaded) return;
     if (storageMode === "supabase") {
-      if (suppressRemoteAutosaveRef.current) return;
       saveAppStateToDb("manual_result_override_match_ids", manualResultOverrideMatchIds).catch((error) =>
         logStorageError("Kunde inte spara manuella resultatlås.", error),
       );
@@ -1318,21 +1321,31 @@ export default function Home() {
   useEffect(() => {
     if (!isDatabaseLoaded) return;
     if (storageMode === "supabase") {
-      const dirtyResultIds = [...dirtyResultIdsRef.current];
-      if (suppressRemoteAutosaveRef.current && dirtyResultIds.length === 0) return;
-      if (dirtyResultIds.length === 0) return;
-      dirtyResultIdsRef.current.clear();
-      const dirtyResults = dirtyResultIds.reduce<Record<number, ScoreLine>>((map, matchId) => {
-        if (results[matchId]) map[matchId] = results[matchId];
-        return map;
-      }, {});
-      const dirtyResultWinners = dirtyResultIds.reduce<Record<number, string>>((map, matchId) => {
-        if (resultWinners[matchId]) map[matchId] = resultWinners[matchId];
-        return map;
-      }, {});
-      if (Object.keys(dirtyResults).length === 0) return;
-      saveResultsToDb(dirtyResults, dirtyResultWinners).catch((error) => {
-        dirtyResultIds.forEach((matchId) => dirtyResultIdsRef.current.add(matchId));
+      const dirtyEntries = [...dirtyResultSourcesRef.current.entries()];
+      if (suppressRemoteAutosaveRef.current && dirtyEntries.length === 0) return;
+      if (dirtyEntries.length === 0) return;
+      dirtyResultSourcesRef.current.clear();
+
+      const saveDirtyResults = (ids: number[], source: ResultWriteSource) => {
+        const dirtyResults = ids.reduce<Record<number, ScoreLine>>((map, matchId) => {
+          if (results[matchId]) map[matchId] = results[matchId];
+          return map;
+        }, {});
+        const dirtyResultWinners = ids.reduce<Record<number, string>>((map, matchId) => {
+          if (resultWinners[matchId]) map[matchId] = resultWinners[matchId];
+          return map;
+        }, {});
+        if (Object.keys(dirtyResults).length === 0) return Promise.resolve();
+        return saveResultsToDb(dirtyResults, dirtyResultWinners, {
+          protectedMatchIds: manualResultOverrideMatchIdsRef.current,
+          source,
+        });
+      };
+
+      const manualIds = dirtyEntries.filter(([, source]) => source === "manual").map(([matchId]) => matchId);
+      const apiIds = dirtyEntries.filter(([, source]) => source === "api").map(([matchId]) => matchId);
+      Promise.all([saveDirtyResults(manualIds, "manual"), saveDirtyResults(apiIds, "api")]).catch((error) => {
+        dirtyEntries.forEach(([matchId, source]) => markResultDirty(matchId, source));
         logStorageError("Kunde inte spara resultat.", error);
       });
       return;
@@ -1484,7 +1497,9 @@ export default function Home() {
           Object.entries(payload.resultWinners).filter(([matchId]) => !manualOverrideIds.has(Number(matchId))),
         ) as Record<number, string>;
 
-        Object.keys(syncedResults).forEach((matchId) => markResultDirty(Number(matchId)));
+        if (currentProfile?.role === "admin") {
+          Object.keys(syncedResults).forEach((matchId) => markResultDirty(Number(matchId), "api"));
+        }
         setLockedMatchIds((current) => uniqueSortedNumbers([...current, ...payload.lockedMatchIds]));
         setResults((current) => ({ ...current, ...syncedResults }));
         setResultWinners((current) => ({ ...current, ...syncedResultWinners }));
@@ -1514,7 +1529,7 @@ export default function Home() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [isDatabaseLoaded]);
+  }, [currentProfile?.role, isDatabaseLoaded]);
 
   const predictionScore = useMemo(
     () =>
@@ -1780,7 +1795,9 @@ export default function Home() {
 
     const allLockedMatchIds = fixtures.map((fixture) => fixture.id);
     if (storageMode === "supabase") {
-      saveResultsToDb(randomResults, randomResultWinners).catch((error) => logStorageError("Kunde inte spara slumpade resultat.", error));
+      saveResultsToDb(randomResults, randomResultWinners, { source: "manual" }).catch((error) =>
+        logStorageError("Kunde inte spara slumpade resultat.", error),
+      );
       saveAppStateToDb("locked_dates", allLockedDates).catch((error) => logStorageError("Kunde inte spara låsta dagar.", error));
       saveAppStateToDb("locked_match_ids", allLockedMatchIds).catch((error) => logStorageError("Kunde inte spara låsta matcher.", error));
       saveAppStateToDb("manual_result_override_match_ids", allLockedMatchIds).catch((error) =>
@@ -4243,7 +4260,7 @@ function AdminPanel({
                         Match {match.id}
                         {match.group ? ` · Grupp ${match.group}` : ` · ${match.stage}`}
                         {isLocked ? " · Låst" : ""}
-                        {hasManualOverride ? " · Manuell override" : ""}
+                        {hasManualOverride ? " · Manuell override · API stoppat" : ""}
                       </p>
                       {match.stage !== "Gruppspel" && (home !== match.home || away !== match.away) ? (
                         <p className="text-xs text-white/35">
@@ -4272,7 +4289,7 @@ function AdminPanel({
                           onClick={() => clearManualResultOverride(match.id)}
                           className="h-11 rounded-2xl bg-flare/15 px-3 text-xs font-bold text-flare transition hover:bg-flare/25"
                         >
-                          Tillåt API
+                          Släpp API
                         </button>
                       ) : null}
                       <input

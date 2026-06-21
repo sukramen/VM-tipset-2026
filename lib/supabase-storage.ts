@@ -91,6 +91,8 @@ type ResultRow = {
   winner: string | null;
 };
 
+type ResultWriteSource = "manual" | "api";
+
 const toProfile = (row: ProfileRow): PlayerProfile => ({
   id: row.id,
   name: row.name,
@@ -240,15 +242,24 @@ export async function loadResultsFromDb() {
 export async function saveResultsToDb(
   results: Record<number, ScoreLine>,
   resultWinners: Record<number, string>,
-  options: { allowDeleteAll?: boolean } = {},
+  options: { allowDeleteAll?: boolean; protectedMatchIds?: number[]; source?: ResultWriteSource } = {},
 ) {
   if (!supabase) return;
-  const rows = Object.entries(results).map(([matchId, score]) => ({
+  let rows = Object.entries(results).map(([matchId, score]) => ({
     match_id: Number(matchId),
     home_score: score.home,
     away_score: score.away,
     winner: resultWinners[Number(matchId)] ?? null,
   }));
+
+  if (options.source === "api") {
+    const protectedMatchIds = new Set([
+      ...(options.protectedMatchIds ?? []),
+      ...(await loadAppStateFromDb<number[]>("manual_result_override_match_ids", [])),
+    ]);
+    rows = rows.filter((row) => !protectedMatchIds.has(row.match_id));
+  }
+
   await enqueueWrite("match-results", () =>
     withRetryOnWriteConflict(async () => {
       if (rows.length === 0) {
