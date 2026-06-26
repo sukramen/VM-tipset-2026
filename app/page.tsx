@@ -3233,6 +3233,7 @@ function PredictionsPanel({
           onBack={() => setTipMode("menu")}
           onChange={onChange}
           onWinnerChange={onWinnerChange}
+          onSavePredictions={onSavePredictions}
         />
       </div>
     );
@@ -3600,6 +3601,7 @@ function KnockoutPredictionPanel({
   onBack,
   onChange,
   onWinnerChange,
+  onSavePredictions,
 }: {
   predictions: Prediction[];
   lockedDates: string[];
@@ -3611,6 +3613,7 @@ function KnockoutPredictionPanel({
   onBack: () => void;
   onChange: (match: Fixture, side: "home" | "away", value: number) => void;
   onWinnerChange: (match: Fixture, winner: string) => void;
+  onSavePredictions: () => void;
 }) {
   const predictionMap = new Map(predictions.map((prediction) => [prediction.matchId, prediction]));
   const knockout = buildResolvedKnockoutFixtures({
@@ -3642,6 +3645,12 @@ function KnockoutPredictionPanel({
             className="rounded-full bg-white/10 px-4 py-2 text-sm font-bold text-white/70 transition hover:bg-white/15 hover:text-white"
           >
             Byt tipsdel
+          </button>
+          <button
+            onClick={onSavePredictions}
+            className="rounded-full bg-volt px-4 py-2 text-sm font-black text-pitch transition hover:brightness-110"
+          >
+            Spara tips
           </button>
           <p className="rounded-full bg-flare/10 px-4 py-2 text-sm text-flare">{completedCount}/32 matcher</p>
         </div>
