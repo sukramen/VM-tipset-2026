@@ -860,37 +860,26 @@ function buildResolvedKnockoutFixtures({
       forceResolveAll ||
       match.stage === "Sextondelsfinal" ||
       (requiredPreviousStage ? stageIsLocked(requiredPreviousStage, lockedDates, lockedMatchIds) : false);
+    const resolveSlot = (slot: string) =>
+      resolveFromMatchSlot(
+        canResolveRound
+          ? resolveKnockoutTeam(
+              slot,
+              standingsByGroup,
+              thirdRank,
+              match.stage === "Sextondelsfinal" ? usedThirdGroups : undefined,
+              resolutionOptions,
+            )
+          : slot,
+        resolvedById,
+        scoreByMatchId,
+        winnerByMatchId,
+      );
 
     const resolved = {
       ...match,
-      resolvedHome: canResolveRound
-        ? resolveFromMatchSlot(
-            resolveKnockoutTeam(
-              match.home,
-              standingsByGroup,
-              thirdRank,
-              match.stage === "Sextondelsfinal" ? usedThirdGroups : undefined,
-              resolutionOptions,
-            ),
-            resolvedById,
-            scoreByMatchId,
-            winnerByMatchId,
-          )
-        : match.home,
-      resolvedAway: canResolveRound
-        ? resolveFromMatchSlot(
-            resolveKnockoutTeam(
-              match.away,
-              standingsByGroup,
-              thirdRank,
-              match.stage === "Sextondelsfinal" ? usedThirdGroups : undefined,
-              resolutionOptions,
-            ),
-            resolvedById,
-            scoreByMatchId,
-            winnerByMatchId,
-          )
-        : match.away,
+      resolvedHome: resolveSlot(match.home),
+      resolvedAway: resolveSlot(match.away),
     };
 
     resolvedById.set(match.id, resolved);
@@ -2242,6 +2231,8 @@ export default function Home() {
               lockedDates={lockedDates}
               lockedMatchIds={lockedMatchIds}
               bonusLocked={bonusLocked}
+              actualResults={results}
+              actualResultWinners={resultWinners}
             />
           )}
           {activeTab === "Admin" && (
@@ -4587,6 +4578,8 @@ function OtherPredictionsPanel({
   lockedDates,
   lockedMatchIds,
   bonusLocked,
+  actualResults,
+  actualResultWinners,
 }: {
   profiles: PlayerProfile[];
   currentProfile: PlayerProfile;
@@ -4595,6 +4588,8 @@ function OtherPredictionsPanel({
   lockedDates: string[];
   lockedMatchIds: number[];
   bonusLocked: boolean;
+  actualResults: Record<number, ScoreLine>;
+  actualResultWinners: Record<number, string>;
 }) {
   const playerProfiles = profiles.filter((profile) => profile.role === "player");
   const visibleProfiles = currentProfile.role === "admin" ? playerProfiles : playerProfiles.filter((profile) => profile.id !== currentProfile.id);
@@ -4603,6 +4598,7 @@ function OtherPredictionsPanel({
   const selectedPredictions = selectedProfile ? allPredictionsByProfile[selectedProfile.id] ?? defaultPredictions : defaultPredictions;
   const selectedBonus = selectedProfile ? allBonusByProfile[selectedProfile.id] ?? defaultBonusAnswers : defaultBonusAnswers;
   const predictionMap = new Map(selectedPredictions.map((prediction) => [prediction.matchId, prediction]));
+  const resolvedKnockoutMatches = getResolvedActualKnockoutFixtures(actualResults, actualResultWinners, lockedDates, lockedMatchIds);
 
   useEffect(() => {
     if (!selectedProfileId || !visibleProfiles.some((profile) => profile.id === selectedProfileId)) {
@@ -4693,7 +4689,7 @@ function OtherPredictionsPanel({
           })}
 
           {stageOrder.map((stage) => {
-            const stageMatches = fixtures.filter((match) => match.stage === stage);
+            const stageMatches = resolvedKnockoutMatches.filter((match) => match.stage === stage);
             return (
               <PredictionReadOnlySection
                 key={stage}
@@ -4722,7 +4718,7 @@ function PredictionReadOnlySection({
 }: {
   title: string;
   tone: "volt" | "flare";
-  matches: Fixture[];
+  matches: Array<Fixture & Partial<ResolvedKnockoutFixture>>;
   predictionMap: Map<number, Prediction>;
   lockedDates: string[];
   lockedMatchIds: number[];
@@ -4738,6 +4734,10 @@ function PredictionReadOnlySection({
         {matches.map((match) => {
           const prediction = predictionMap.get(match.id);
           const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
+          const resolvedHome = match.resolvedHome ?? match.home;
+          const resolvedAway = match.resolvedAway ?? match.away;
+          const home = isKnockoutPlaceholder(resolvedHome) ? match.home : resolvedHome;
+          const away = isKnockoutPlaceholder(resolvedAway) ? match.away : resolvedAway;
           const scoreLabel = prediction?.score ? `${prediction.score.home}-${prediction.score.away}` : "-";
 
           return (
@@ -4746,11 +4746,11 @@ function PredictionReadOnlySection({
               className="grid grid-cols-[38px_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-2xl border border-white/10 bg-pitch/55 p-3 text-sm sm:grid-cols-[46px_minmax(0,1fr)_72px_minmax(0,1fr)]"
             >
               <span className="text-xs font-bold text-white/40">#{match.id}</span>
-              <span className="min-w-0 truncate font-bold"><TeamLabel team={match.home} /></span>
+              <span className="min-w-0 truncate font-bold"><TeamLabel team={home} /></span>
               <span className={classNames("grid min-h-7 place-items-center text-center font-display text-lg font-black", accentClass)}>
                 {isLocked ? scoreLabel : <SkeletonLine className="h-6 w-14" />}
               </span>
-              <span className="min-w-0 truncate text-right font-bold"><TeamLabel team={match.away} /></span>
+              <span className="min-w-0 truncate text-right font-bold"><TeamLabel team={away} /></span>
             </div>
           );
         })}
@@ -4954,10 +4954,15 @@ function StatsPanel({
   ];
   const lineColors = ["#7CFF6B", "#55D6FF", "#FF5C8A", "#FFB84D", "#B58CFF", "#36F1CD", "#F7F052"];
   const maxHistoryLength = Math.max(...leaderboardRows.map((user) => user.history.length), 1);
-  const scoreHistoryData = Array.from({ length: maxHistoryLength }, (_, index) => {
-    const row: Record<string, string | number> = { day: index === 0 ? "Start" : `Dag ${index}` };
+  const hasBonusPoints = leaderboardRows.some((user) => user.bonusPoints > 0);
+  const scoreHistoryLength = maxHistoryLength + (hasBonusPoints ? 1 : 0);
+  const bonusIndex = scoreHistoryLength - 1;
+  const scoreHistoryData = Array.from({ length: scoreHistoryLength }, (_, index) => {
+    const isBonusPoint = hasBonusPoints && index === bonusIndex;
+    const row: Record<string, string | number> = { day: isBonusPoint ? "Bonus" : index === 0 ? "Start" : `Dag ${index}` };
     leaderboardRows.forEach((user) => {
-      row[user.name] = user.history[index] ?? user.history[user.history.length - 1] ?? 0;
+      const matchPoints = user.history[index] ?? user.history[user.history.length - 1] ?? 0;
+      row[user.name] = isBonusPoint ? matchPoints + user.bonusPoints : matchPoints;
     });
     return row;
   });
@@ -5053,7 +5058,7 @@ function StatsPanel({
             <h2 className="font-display text-lg font-black sm:text-xl">Poängutveckling per spelare</h2>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <p className="text-sm text-white/50">X-axel: dagar · Y-axel: totalpoäng</p>
+            <p className="text-sm text-white/50">X-axel: dagar{hasBonusPoints ? " + bonus" : ""} · Y-axel: totalpoäng</p>
             <button
               onClick={() => {
                 setChartAnimationKey((current) => current + 1);
