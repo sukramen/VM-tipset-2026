@@ -198,8 +198,57 @@ function uniqueSortedNumbers(values: number[]) {
   return [...new Set(values)].sort((a, b) => a - b);
 }
 
-function isFixtureLocked(fixture: Fixture, lockedDates: string[], lockedMatchIds: number[] = []) {
+function hasScoreLine(score?: ScoreLine) {
+  return typeof score?.home === "number" && typeof score?.away === "number";
+}
+
+function canFixtureBeLockedByTime(fixture: Fixture, results: Record<number, ScoreLine> = {}, now = new Date()) {
+  return getFixtureKickoff(fixture) <= now || hasScoreLine(results[fixture.id]);
+}
+
+function isFixtureLocked(
+  fixture: Fixture,
+  lockedDates: string[],
+  lockedMatchIds: number[] = [],
+  options: { results?: Record<number, ScoreLine>; now?: Date } = {},
+) {
+  if (!canFixtureBeLockedByTime(fixture, options.results, options.now)) return false;
   return lockedDates.includes(fixture.date) || lockedMatchIds.includes(fixture.id);
+}
+
+function normalizeTimedLocks(
+  lockedDates: string[],
+  lockedMatchIds: number[],
+  results: Record<number, ScoreLine> = {},
+  now = new Date(),
+) {
+  const lockableMatchIds = new Set(
+    fixtures.filter((fixture) => canFixtureBeLockedByTime(fixture, results, now)).map((fixture) => fixture.id),
+  );
+  const normalizedMatchIds = uniqueSortedNumbers(lockedMatchIds.filter((matchId) => lockableMatchIds.has(matchId)));
+  const normalizedDates = lockedDates
+    .filter((date) => {
+      const dayFixtures = fixtures.filter((fixture) => fixture.date === date);
+      return dayFixtures.length > 0 && dayFixtures.every((fixture) => lockableMatchIds.has(fixture.id));
+    })
+    .sort();
+
+  return {
+    lockedDates: [...new Set(normalizedDates)],
+    lockedMatchIds: normalizedMatchIds,
+  };
+}
+
+function timedLocksAreEqual(
+  first: { lockedDates: string[]; lockedMatchIds: number[] },
+  second: { lockedDates: string[]; lockedMatchIds: number[] },
+) {
+  return (
+    first.lockedDates.length === second.lockedDates.length &&
+    first.lockedMatchIds.length === second.lockedMatchIds.length &&
+    first.lockedDates.every((date, index) => date === second.lockedDates[index]) &&
+    first.lockedMatchIds.every((matchId, index) => matchId === second.lockedMatchIds[index])
+  );
 }
 
 function TeamLabel({ team }: { team: string }) {
@@ -1068,6 +1117,7 @@ async function loadSupabaseSnapshot(): Promise<SupabaseSnapshot> {
 
   const profiles = dbProfiles.length > 0 ? dbProfiles : starterProfiles;
   if (dbProfiles.length === 0) await saveProfilesToDb(starterProfiles);
+  const normalizedLocks = normalizeTimedLocks(dbLockedDates, dbLockedMatchIds, dbResults.results);
 
   return {
     profiles,
@@ -1076,8 +1126,8 @@ async function loadSupabaseSnapshot(): Promise<SupabaseSnapshot> {
     results: dbResults.results,
     resultWinners: dbResults.resultWinners,
     manualResultOverrideMatchIds: dbManualResultOverrideMatchIds,
-    lockedDates: dbLockedDates,
-    lockedMatchIds: dbLockedMatchIds,
+    lockedDates: normalizedLocks.lockedDates,
+    lockedMatchIds: normalizedLocks.lockedMatchIds,
     groupStageTipsLocked: dbGroupStageTipsLocked,
     officialBonusAnswers: dbOfficialBonus,
   };
@@ -1305,15 +1355,22 @@ export default function Home() {
 
   useEffect(() => {
     if (!isDatabaseLoaded) return;
-    if (storageMode === "supabase") {
-      if (suppressRemoteAutosaveRef.current) return;
-      saveAppStateToDb("locked_dates", lockedDates).catch((error) => logStorageError("Kunde inte spara låsta dagar.", error));
-      saveAppStateToDb("locked_match_ids", lockedMatchIds).catch((error) => logStorageError("Kunde inte spara låsta matcher.", error));
+    const normalizedLocks = normalizeTimedLocks(lockedDates, lockedMatchIds, results);
+    if (!timedLocksAreEqual({ lockedDates, lockedMatchIds }, normalizedLocks)) {
+      setLockedDates(normalizedLocks.lockedDates);
+      setLockedMatchIds(normalizedLocks.lockedMatchIds);
       return;
     }
-    window.localStorage.setItem("vm-tipset-locked-dates", JSON.stringify(lockedDates));
-    window.localStorage.setItem("vm-tipset-locked-match-ids", JSON.stringify(lockedMatchIds));
-  }, [isDatabaseLoaded, lockedDates, lockedMatchIds, storageMode]);
+
+    if (storageMode === "supabase") {
+      if (suppressRemoteAutosaveRef.current) return;
+      saveAppStateToDb("locked_dates", normalizedLocks.lockedDates).catch((error) => logStorageError("Kunde inte spara låsta dagar.", error));
+      saveAppStateToDb("locked_match_ids", normalizedLocks.lockedMatchIds).catch((error) => logStorageError("Kunde inte spara låsta matcher.", error));
+      return;
+    }
+    window.localStorage.setItem("vm-tipset-locked-dates", JSON.stringify(normalizedLocks.lockedDates));
+    window.localStorage.setItem("vm-tipset-locked-match-ids", JSON.stringify(normalizedLocks.lockedMatchIds));
+  }, [isDatabaseLoaded, lockedDates, lockedMatchIds, results, storageMode]);
 
   useEffect(() => {
     if (!isDatabaseLoaded) return;
