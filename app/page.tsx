@@ -908,7 +908,14 @@ function buildResolvedKnockoutFixtures({
     ]),
   );
   const winnerByMatchId = new Map(
-    fixtures.slice(72).map((match) => [match.id, advancementWinners[match.id] ?? predictionMap.get(match.id)?.winner]),
+    fixtures.slice(72).map((match) => [
+      match.id,
+      useSourceResultsForAdvancement
+        ? sourceResults[match.id]
+          ? advancementWinners[match.id]
+          : undefined
+        : predictionMap.get(match.id)?.winner,
+    ]),
   );
   const resolvedById = new Map<number, ResolvedKnockoutFixture>();
   const usedThirdGroups = new Set<GroupLetter>();
