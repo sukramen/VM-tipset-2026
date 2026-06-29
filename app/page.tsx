@@ -363,6 +363,23 @@ function getMatchesByDate(date: string) {
     .sort((a, b) => a.kickoffTime.localeCompare(b.kickoffTime) || a.id - b.id);
 }
 
+function sortFixturesByKickoff<T extends Fixture>(matches: T[]) {
+  return [...matches].sort((a, b) => a.date.localeCompare(b.date) || a.kickoffTime.localeCompare(b.kickoffTime) || a.id - b.id);
+}
+
+function groupFixturesByDate<T extends Fixture>(matches: T[]) {
+  return sortFixturesByKickoff(matches).reduce<Array<{ date: string; matches: T[] }>>((days, match) => {
+    const existingDay = days.find((day) => day.date === match.date);
+    if (existingDay) {
+      existingDay.matches.push(match);
+      return days;
+    }
+
+    days.push({ date: match.date, matches: [match] });
+    return days;
+  }, []);
+}
+
 function getDashboardNextFixture(previewDate?: string, now = new Date()) {
   if (previewDate) return getMatchesByDate(previewDate)[0] ?? nextFixture(now);
   return nextFixture(now);
@@ -3670,14 +3687,18 @@ function KnockoutPredictionPanel({
       <div className="grid gap-4">
         {stageOrder.map((stage) => {
           const stageMatches = knockout.filter((match) => match.stage === stage);
+          const stageDays = groupFixturesByDate(stageMatches);
 
           return (
             <section key={stage} className="overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/20 sm:rounded-[1.75rem]">
               <div className="border-b border-white/10 bg-white/[0.06] p-3">
                 <p className="text-xs font-black uppercase tracking-[0.28em] text-flare sm:text-sm sm:tracking-[0.3em]">{stage}</p>
               </div>
-              <div className="grid gap-2 p-2 sm:p-2.5">
-                {stageMatches.map((match) => {
+              <div className="grid gap-3 p-2 sm:p-2.5">
+                {stageDays.map((day) => (
+                  <div key={`${stage}-${day.date}`} className="grid gap-2">
+                    <p className="px-2 text-xs font-black uppercase tracking-[0.18em] text-white/35">{formatDate(day.date)}</p>
+                    {day.matches.map((match) => {
                   const prediction = predictionMap.get(match.id);
                   const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
                   const isMatchResolved = isResolvedKnockoutMatch(match);
@@ -3753,7 +3774,9 @@ function KnockoutPredictionPanel({
                       </div>
                     </div>
                   );
-                })}
+                    })}
+                  </div>
+                ))}
               </div>
             </section>
           );
