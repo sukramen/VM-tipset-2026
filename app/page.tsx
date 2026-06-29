@@ -2189,6 +2189,7 @@ export default function Home() {
               dailyScoreData={dailyScoreData}
               matchDayPanel={matchDayPanel}
               results={results}
+              resultWinners={resultWinners}
               lockedDates={lockedDates}
               lockedMatchIds={lockedMatchIds}
               phaseStatus={phaseStatus}
@@ -2518,6 +2519,7 @@ function Dashboard({
   dailyScoreData,
   matchDayPanel,
   results,
+  resultWinners,
   lockedDates,
   lockedMatchIds,
   phaseStatus,
@@ -2529,12 +2531,28 @@ function Dashboard({
   dailyScoreData: DailyScoreDay[];
   matchDayPanel: { label: string; date: string; matches: Fixture[] };
   results: Record<number, ScoreLine>;
+  resultWinners: Record<number, string>;
   lockedDates: string[];
   lockedMatchIds: number[];
   phaseStatus: ReturnType<typeof getPhaseStatus>;
   tournamentCountdown: ReturnType<typeof getTournamentCountdown>;
   onOpenStats: () => void;
 }) {
+  const resolvedKnockoutById = useMemo(
+    () => new Map(getResolvedActualKnockoutFixtures(results, resultWinners, lockedDates, lockedMatchIds).map((match) => [match.id, match])),
+    [lockedDates, lockedMatchIds, resultWinners, results],
+  );
+  const getDisplayTeams = (match: Fixture) => {
+    const resolvedMatch = match.stage === "Gruppspel" ? undefined : resolvedKnockoutById.get(match.id);
+    const resolvedHome = resolvedMatch?.resolvedHome ?? match.home;
+    const resolvedAway = resolvedMatch?.resolvedAway ?? match.away;
+    return {
+      home: isKnockoutPlaceholder(resolvedHome) ? match.home : resolvedHome,
+      away: isKnockoutPlaceholder(resolvedAway) ? match.away : resolvedAway,
+    };
+  };
+  const nextTeams = getDisplayTeams(next);
+
   return (
     <div className="grid w-full min-w-0 max-w-full gap-5">
       <div className="grid w-full min-w-0 max-w-full gap-4 lg:hidden">
@@ -2592,9 +2610,9 @@ function Dashboard({
           value={
             <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
               <span>{formatDate(next.date)} {next.kickoffTime}</span>
-              <TeamLabel team={next.home} />
+              <TeamLabel team={nextTeams.home} />
               <span>-</span>
-              <TeamLabel team={next.away} />
+              <TeamLabel team={nextTeams.away} />
             </span>
           }
         />
@@ -2610,6 +2628,7 @@ function Dashboard({
           <div className="mt-4 space-y-2">
             {matchDayPanel.matches.map((match) => {
               const result = isFixtureLocked(match, lockedDates, lockedMatchIds) ? results[match.id] : undefined;
+              const displayTeams = getDisplayTeams(match);
 
               return (
                 <div key={match.id} className="rounded-2xl bg-white/5 p-3">
@@ -2621,8 +2640,8 @@ function Dashboard({
                       </p>
                     ) : null}
                   </div>
-                  <p className="mt-1 truncate font-bold"><TeamLabel team={match.home} /></p>
-                  <p className="truncate font-bold"><TeamLabel team={match.away} /></p>
+                  <p className="mt-1 truncate font-bold"><TeamLabel team={displayTeams.home} /></p>
+                  <p className="truncate font-bold"><TeamLabel team={displayTeams.away} /></p>
                 </div>
               );
             })}
@@ -2683,9 +2702,9 @@ function Dashboard({
           value={
             <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
               <span>{formatDate(next.date)} {next.kickoffTime}</span>
-              <TeamLabel team={next.home} />
+              <TeamLabel team={nextTeams.home} />
               <span>-</span>
-              <TeamLabel team={next.away} />
+              <TeamLabel team={nextTeams.away} />
             </span>
           }
         />
@@ -2700,15 +2719,16 @@ function Dashboard({
           <div className="mt-4 space-y-3">
             {matchDayPanel.matches.map((match) => {
               const result = isFixtureLocked(match, lockedDates, lockedMatchIds) ? results[match.id] : undefined;
+              const displayTeams = getDisplayTeams(match);
 
               return (
                 <div key={match.id} className="grid grid-cols-[48px_1fr] gap-2 rounded-2xl bg-white/5 p-3 text-sm sm:grid-cols-[52px_1fr_auto_1fr] sm:items-center">
                   <span className="font-display font-black text-volt">{match.kickoffTime}</span>
-                  <span className="font-bold"><TeamLabel team={match.home} /></span>
+                  <span className="font-bold"><TeamLabel team={displayTeams.home} /></span>
                   <span className={classNames("hidden font-display font-black sm:block", result ? "text-volt" : "text-white/40")}>
                     {result ? formatScoreLine(result) : "vs"}
                   </span>
-                  <span className="col-start-2 font-bold sm:col-auto sm:text-right"><TeamLabel team={match.away} /></span>
+                  <span className="col-start-2 font-bold sm:col-auto sm:text-right"><TeamLabel team={displayTeams.away} /></span>
                 </div>
               );
             })}
