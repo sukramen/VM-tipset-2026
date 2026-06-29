@@ -2268,6 +2268,7 @@ export default function Home() {
               next={next}
               topThree={topThree}
               dailyScoreData={dailyScoreData}
+              totalPoints={currentProfileScore}
               matchDayPanel={matchDayPanel}
               results={results}
               resultWinners={resultWinners}
@@ -2598,6 +2599,7 @@ function Dashboard({
   next,
   topThree,
   dailyScoreData,
+  totalPoints,
   matchDayPanel,
   results,
   resultWinners,
@@ -2610,6 +2612,7 @@ function Dashboard({
   next: Fixture;
   topThree: UserScore[];
   dailyScoreData: DailyScoreDay[];
+  totalPoints: number;
   matchDayPanel: { label: string; date: string; matches: Fixture[] };
   results: Record<number, ScoreLine>;
   resultWinners: Record<number, string>;
@@ -2633,6 +2636,22 @@ function Dashboard({
     };
   };
   const nextTeams = getDisplayTeams(next);
+  const scoreChartData = useMemo(() => {
+    const lastScoreDay = dailyScoreData[dailyScoreData.length - 1];
+    const matchPoints = lastScoreDay?.points ?? 0;
+    if (matchPoints === totalPoints) return dailyScoreData;
+
+    return [
+      ...dailyScoreData,
+      {
+        dateKey: "bonus",
+        date: "Bonus",
+        points: totalPoints,
+        dayPoints: totalPoints - matchPoints,
+        matches: [],
+      },
+    ];
+  }, [dailyScoreData, totalPoints]);
 
   return (
     <div className="grid w-full min-w-0 max-w-full gap-5">
@@ -2677,10 +2696,10 @@ function Dashboard({
               <p className="mt-1 text-xs text-white/50">Räknas när matcherna är färdigspelade.</p>
             </div>
             <p className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-sm text-white/65">
-              {dailyScoreData[dailyScoreData.length - 1]?.points ?? 0} p
+              {totalPoints} p
             </p>
           </div>
-          <PointsAreaChart data={dailyScoreData} heightClass="h-44" />
+          <PointsAreaChart data={scoreChartData} heightClass="h-44" />
         </section>
 
         <DailyPointsCard dailyScoreData={dailyScoreData} onOpenStats={onOpenStats} />
@@ -2767,10 +2786,10 @@ function Dashboard({
                 <p className="text-sm text-white/50">Poäng räknas när matcherna är färdigspelade.</p>
               </div>
               <p className="rounded-full bg-white/10 px-4 py-2 text-sm text-white/65">
-                {dailyScoreData[dailyScoreData.length - 1]?.points ?? 0} p totalt
+                {totalPoints} p totalt
               </p>
             </div>
-            <PointsAreaChart data={dailyScoreData} heightClass="h-40 sm:h-52" />
+            <PointsAreaChart data={scoreChartData} heightClass="h-40 sm:h-52" />
         </section>
 
 
