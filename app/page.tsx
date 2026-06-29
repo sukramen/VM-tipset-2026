@@ -4132,6 +4132,17 @@ function BracketMatchCard({
   featured?: boolean;
 }) {
   const winner = result ? matchWinner(match.resolvedHome, match.resolvedAway, result, resultWinner) : undefined;
+  const isFinished = hasScoreLine(result);
+  const isLive = isLocked && !isFinished;
+  const statusLabel = isFinished ? "Klar" : isLive ? "Pågår" : formatDate(match.date);
+  const statusClass = isFinished ? "bg-volt/15 text-volt" : isLive ? "bg-flare/20 text-flare" : "bg-white/10 text-white/45";
+  const cardClass = isFinished
+    ? "border-volt/25 bg-volt/5"
+    : isLive
+      ? "border-flare/50 bg-flare/10"
+      : featured
+        ? "border-flare/35 bg-flare/10"
+        : "border-white/10";
   const teamRows = [
     { team: match.resolvedHome, score: result?.home },
     { team: match.resolvedAway, score: result?.away },
@@ -4141,14 +4152,12 @@ function BracketMatchCard({
     <article
       className={classNames(
         "w-full rounded-2xl border bg-black/25 p-3 shadow-sm",
-        featured ? "border-flare/35 bg-flare/10" : isLocked ? "border-volt/25 bg-volt/5" : "border-white/10",
+        cardClass,
       )}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/45">{getBracketMatchTitle(match)}</p>
-        <span className={classNames("rounded-full px-2 py-0.5 text-[10px] font-bold", isLocked ? "bg-volt/15 text-volt" : "bg-white/10 text-white/45")}>
-          {isLocked ? "Klar" : formatDate(match.date)}
-        </span>
+        <span className={classNames("rounded-full px-2 py-0.5 text-[10px] font-bold", statusClass)}>{statusLabel}</span>
       </div>
       <div className="grid gap-1">
         {teamRows.map(({ team, score }) => (
