@@ -4007,7 +4007,7 @@ function BracketFinalStage({
 
 function BracketRoundHeader({ title }: { title: string }) {
   return (
-    <p className="rounded-full bg-white/10 px-3 py-1 text-center text-xs font-bold uppercase tracking-[0.18em] text-white/45">
+    <p className="grid h-8 place-items-center rounded-full bg-white/10 pl-3 pr-[calc(0.75rem-0.18em)] text-center text-xs font-bold uppercase leading-none tracking-[0.18em] text-white/45">
       {title}
     </p>
   );
