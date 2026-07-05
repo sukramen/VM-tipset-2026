@@ -74,6 +74,7 @@ const defaultPredictions: Prediction[] = fixtures.map((match) => ({
   matchId: match.id,
   winner: match.stage === "Gruppspel" ? "Ej tippat" : "Ej valt",
 }));
+const fixtureById = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
 
 const defaultBonusAnswers: BonusPrediction = {};
 
@@ -202,8 +203,12 @@ function hasScoreLine(score?: ScoreLine) {
   return typeof score?.home === "number" && typeof score?.away === "number";
 }
 
+function hasFixtureStartedByTime(fixture: Fixture, now = new Date()) {
+  return getFixtureKickoff(fixture) <= now;
+}
+
 function canFixtureBeLockedByTime(fixture: Fixture, results: Record<number, ScoreLine> = {}, now = new Date()) {
-  return getFixtureKickoff(fixture) <= now || hasScoreLine(results[fixture.id]);
+  return hasFixtureStartedByTime(fixture, now) || hasScoreLine(results[fixture.id]);
 }
 
 function isFixtureLocked(
@@ -249,6 +254,22 @@ function timedLocksAreEqual(
     first.lockedDates.every((date, index) => date === second.lockedDates[index]) &&
     first.lockedMatchIds.every((matchId, index) => matchId === second.lockedMatchIds[index])
   );
+}
+
+function getSaveablePredictions(predictions: Prediction[], now = new Date()) {
+  return predictions.filter((prediction) => {
+    const fixture = fixtureById.get(prediction.matchId);
+    return !fixture || !hasFixtureStartedByTime(fixture, now);
+  });
+}
+
+function mergeSaveablePredictions(currentSaved: Prediction[], nextPredictions: Prediction[], now = new Date()) {
+  const mergedByMatchId = new Map(currentSaved.map((prediction) => [prediction.matchId, prediction]));
+  getSaveablePredictions(nextPredictions, now).forEach((prediction) => {
+    mergedByMatchId.set(prediction.matchId, prediction);
+  });
+
+  return defaultPredictions.map((defaultPrediction) => mergedByMatchId.get(defaultPrediction.matchId) ?? defaultPrediction);
 }
 
 function TeamLabel({ team }: { team: string }) {
@@ -1528,10 +1549,19 @@ export default function Home() {
       const startedMatchIds = getStartedMatchIds(new Date());
       setLockedMatchIds((current) => uniqueSortedNumbers([...current, ...startedMatchIds]));
     };
+    const lockStartedMatchesWhenVisible = () => {
+      if (!document.hidden) lockStartedMatches();
+    };
 
     lockStartedMatches();
     const timer = window.setInterval(lockStartedMatches, 60_000);
-    return () => window.clearInterval(timer);
+    window.addEventListener("focus", lockStartedMatches);
+    document.addEventListener("visibilitychange", lockStartedMatchesWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", lockStartedMatches);
+      document.removeEventListener("visibilitychange", lockStartedMatchesWhenVisible);
+    };
   }, [isDatabaseLoaded]);
 
   useEffect(() => {
@@ -1699,6 +1729,7 @@ export default function Home() {
 
   function updatePrediction(match: Fixture & Partial<ResolvedKnockoutFixture>, side: "home" | "away", value: number) {
     if (groupStageTipsLocked && match.stage === "Gruppspel") return;
+    if (hasFixtureStartedByTime(match)) return;
     markPredictionDirty();
     setPredictions((current) => {
       const existingPrediction = current.find((prediction) => prediction.matchId === match.id);
@@ -1730,6 +1761,7 @@ export default function Home() {
   }
 
   function updatePredictionWinner(match: Fixture, winner: string) {
+    if (hasFixtureStartedByTime(match)) return;
     markPredictionDirty();
     setPredictions((current) => {
       const existingPrediction = current.find((prediction) => prediction.matchId === match.id);
@@ -1757,8 +1789,12 @@ export default function Home() {
 
   function saveCurrentPredictions() {
     if (!currentProfile) return;
+    const now = new Date();
+    const saveablePredictions = getSaveablePredictions(predictions, now);
+    setLockedMatchIds((current) => uniqueSortedNumbers([...current, ...getStartedMatchIds(now)]));
+
     if (storageMode === "supabase") {
-      savePredictionsToDb(currentProfile.id, predictions)
+      savePredictionsToDb(currentProfile.id, saveablePredictions)
         .then(() => refreshProfilePredictions(currentProfile.id, { forceApply: true }))
         .then(() => {
           window.alert("Tipset är sparat.");
@@ -1770,7 +1806,14 @@ export default function Home() {
       return;
     }
 
-    window.localStorage.setItem(`vm-tipset-predictions-${currentProfile.id}`, JSON.stringify(predictions));
+    const currentSaved =
+      window.localStorage.getItem(`vm-tipset-predictions-version-${currentProfile.id}`) === predictionsVersion
+        ? readStoredJson(`vm-tipset-predictions-${currentProfile.id}`, defaultPredictions)
+        : defaultPredictions;
+    const mergedPredictions = mergeSaveablePredictions(currentSaved, predictions, now);
+    setPredictions(mergedPredictions);
+    setAllPredictionsByProfile((current) => ({ ...current, [currentProfile.id]: mergedPredictions }));
+    window.localStorage.setItem(`vm-tipset-predictions-${currentProfile.id}`, JSON.stringify(mergedPredictions));
     window.localStorage.setItem(`vm-tipset-predictions-version-${currentProfile.id}`, predictionsVersion);
     window.alert("Tipset är sparat.");
   }
@@ -3386,15 +3429,16 @@ function PredictionsPanel({
                   {groupMatches.map((match) => {
                     const prediction = predictionMap.get(match.id);
                     const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
+                    const hasStarted = hasFixtureStartedByTime(match);
+                    const isClosedForTips = isLocked || hasStarted;
                     const isGroupStageTipsLocked = groupStageTipsLocked && match.stage === "Gruppspel";
-                    const hasPredictionScore = Boolean(prediction?.score);
-                    const isInputDisabled = isGroupStageTipsLocked || (isLocked && hasPredictionScore);
+                    const isInputDisabled = isGroupStageTipsLocked || isClosedForTips;
                     return (
                       <div
                         key={match.id}
                         className={classNames(
                           "grid grid-cols-[34px_1fr] gap-2 rounded-2xl border border-white/10 bg-pitch/55 p-3 sm:grid-cols-[46px_1fr_auto_1fr] sm:gap-3 sm:rounded-3xl",
-                          isLocked && "border-flare/25 bg-flare/5",
+                          isClosedForTips && "border-flare/25 bg-flare/5",
                         )}
                       >
                         <span className="pt-1 text-sm font-bold text-white/40">#{match.id}</span>
@@ -3403,7 +3447,7 @@ function PredictionsPanel({
                           <p className="text-xs text-white/40">
                             {formatDate(match.date)}
                             {isGroupStageTipsLocked ? " · Stängt för tips" : ""}
-                            {isLocked ? " · Låst" : ""}
+                            {isClosedForTips ? " · Låst" : ""}
                           </p>
                         </div>
                         <div className="col-span-2 flex items-center justify-center gap-2 py-1 sm:col-span-1 sm:py-0">
@@ -3782,81 +3826,83 @@ function KnockoutPredictionPanel({
                   <div key={`${stage}-${day.date}`} className="grid gap-2">
                     <p className="px-2 text-xs font-black uppercase tracking-[0.18em] text-white/35">{formatDate(day.date)}</p>
                     {day.matches.map((match) => {
-                  const prediction = predictionMap.get(match.id);
-                  const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
-                  const isMatchResolved = isResolvedKnockoutMatch(match);
-                  const hasPredictionScore = Boolean(prediction?.score);
-                  const isRepairableBlankPrediction = Boolean(resolveTeams) && isMatchResolved && isLocked && !hasPredictionScore;
-                  const isOpenStage = openKnockoutStages.includes(match.stage);
-                  const isEditable = (resolveTeams && isMatchResolved && isOpenStage && !isLocked) || isRepairableBlankPrediction;
-                  const isDraw = prediction?.score?.home === prediction?.score?.away;
-                  const winner = getWinnerLabel(match, prediction?.score, prediction?.winner);
-                  const statusLabel = isRepairableBlankPrediction
-                    ? "Fyll i saknat tips"
-                    : isLocked
-                      ? "Låst"
-                      : isEditable
-                        ? "Öppen"
-                        : isMatchResolved
-                          ? "Öppnar senare"
-                          : "Väntar på lag";
+                      const prediction = predictionMap.get(match.id);
+                      const isLocked = isFixtureLocked(match, lockedDates, lockedMatchIds);
+                      const hasStarted = hasFixtureStartedByTime(match);
+                      const isClosedForTips = isLocked || hasStarted;
+                      const isMatchResolved = isResolvedKnockoutMatch(match);
+                      const hasPredictionScore = Boolean(prediction?.score);
+                      const isRepairableBlankPrediction = Boolean(resolveTeams) && isMatchResolved && isLocked && !hasPredictionScore && !hasStarted;
+                      const isOpenStage = openKnockoutStages.includes(match.stage);
+                      const isEditable = ((resolveTeams && isMatchResolved && isOpenStage && !isClosedForTips) || isRepairableBlankPrediction) && !hasStarted;
+                      const isDraw = prediction?.score?.home === prediction?.score?.away;
+                      const winner = getWinnerLabel(match, prediction?.score, prediction?.winner);
+                      const statusLabel = isRepairableBlankPrediction
+                        ? "Fyll i saknat tips"
+                        : isClosedForTips
+                          ? "Låst"
+                          : isEditable
+                            ? "Öppen"
+                            : isMatchResolved
+                              ? "Öppnar senare"
+                              : "Väntar på lag";
 
-                  return (
-                    <div
-                      key={match.id}
-                      className={classNames(
-                        "grid grid-cols-[34px_1fr] gap-2 rounded-2xl border border-white/10 bg-pitch/55 p-3 sm:grid-cols-[44px_1fr_auto_1fr] sm:gap-3 sm:rounded-3xl",
-                        isLocked && "border-flare/25 bg-flare/5",
-                      )}
-                    >
-                      <span className="pt-1 text-sm font-bold text-white/40">#{match.id}</span>
-                      <div>
-                        <p className="font-bold"><TeamLabel team={match.resolvedHome} /></p>
-                        <p className="text-xs text-white/40">
-                          {formatDate(match.date)} {match.kickoffTime} · {statusLabel}
-                        </p>
-                        {match.resolvedHome !== match.home && <p className="text-xs text-white/30"><TeamLabel team={match.home} /></p>}
-                      </div>
-                      <div className="col-span-2 flex items-center justify-center gap-2 py-1 sm:col-span-1 sm:py-0">
-                        <ScoreField
-                          label={`${match.resolvedHome} mål`}
-                          value={prediction?.score?.home}
-                          disabled={!isEditable}
-                          onChange={(value) => onChange(match, "home", value)}
-                          tone="flare"
-                        />
-                        <span className="text-white/40">-</span>
-                        <ScoreField
-                          label={`${match.resolvedAway} mål`}
-                          value={prediction?.score?.away}
-                          disabled={!isEditable}
-                          onChange={(value) => onChange(match, "away", value)}
-                          tone="flare"
-                        />
-                      </div>
-                      <div className="col-span-2 text-left sm:col-span-1 sm:text-right">
-                        <p className="font-bold"><TeamLabel team={match.resolvedAway} /></p>
-                        {match.resolvedAway !== match.away && <p className="text-xs text-white/30"><TeamLabel team={match.away} /></p>}
-                        <p className="text-xs text-white/40">Vidare: {winner}</p>
-                        {isDraw ? (
-                          <select
-                            value={
-                              prediction?.winner && [match.resolvedHome, match.resolvedAway].includes(prediction.winner)
-                                ? prediction.winner
-                                : ""
-                            }
-                            disabled={!isEditable}
-                            onChange={(event) => onWinnerChange(match, event.target.value)}
-                            className="mt-2 w-full rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-xs font-bold outline-none focus:border-flare disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
-                          >
-                            <option value="">Välj lag vidare</option>
-                            <option value={match.resolvedHome}>{match.resolvedHome}</option>
-                            <option value={match.resolvedAway}>{match.resolvedAway}</option>
-                          </select>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
+                      return (
+                        <div
+                          key={match.id}
+                          className={classNames(
+                            "grid grid-cols-[34px_1fr] gap-2 rounded-2xl border border-white/10 bg-pitch/55 p-3 sm:grid-cols-[44px_1fr_auto_1fr] sm:gap-3 sm:rounded-3xl",
+                            isClosedForTips && "border-flare/25 bg-flare/5",
+                          )}
+                        >
+                          <span className="pt-1 text-sm font-bold text-white/40">#{match.id}</span>
+                          <div>
+                            <p className="font-bold"><TeamLabel team={match.resolvedHome} /></p>
+                            <p className="text-xs text-white/40">
+                              {formatDate(match.date)} {match.kickoffTime} · {statusLabel}
+                            </p>
+                            {match.resolvedHome !== match.home && <p className="text-xs text-white/30"><TeamLabel team={match.home} /></p>}
+                          </div>
+                          <div className="col-span-2 flex items-center justify-center gap-2 py-1 sm:col-span-1 sm:py-0">
+                            <ScoreField
+                              label={`${match.resolvedHome} mål`}
+                              value={prediction?.score?.home}
+                              disabled={!isEditable}
+                              onChange={(value) => onChange(match, "home", value)}
+                              tone="flare"
+                            />
+                            <span className="text-white/40">-</span>
+                            <ScoreField
+                              label={`${match.resolvedAway} mål`}
+                              value={prediction?.score?.away}
+                              disabled={!isEditable}
+                              onChange={(value) => onChange(match, "away", value)}
+                              tone="flare"
+                            />
+                          </div>
+                          <div className="col-span-2 text-left sm:col-span-1 sm:text-right">
+                            <p className="font-bold"><TeamLabel team={match.resolvedAway} /></p>
+                            {match.resolvedAway !== match.away && <p className="text-xs text-white/30"><TeamLabel team={match.away} /></p>}
+                            <p className="text-xs text-white/40">Vidare: {winner}</p>
+                            {isDraw ? (
+                              <select
+                                value={
+                                  prediction?.winner && [match.resolvedHome, match.resolvedAway].includes(prediction.winner)
+                                    ? prediction.winner
+                                    : ""
+                                }
+                                disabled={!isEditable}
+                                onChange={(event) => onWinnerChange(match, event.target.value)}
+                                className="mt-2 w-full rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-xs font-bold outline-none focus:border-flare disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
+                              >
+                                <option value="">Välj lag vidare</option>
+                                <option value={match.resolvedHome}>{match.resolvedHome}</option>
+                                <option value={match.resolvedAway}>{match.resolvedAway}</option>
+                              </select>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
                     })}
                   </div>
                 ))}
