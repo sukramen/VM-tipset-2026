@@ -3851,11 +3851,11 @@ function KnockoutPredictionPanel({
                         <div
                           key={match.id}
                           className={classNames(
-                            "grid grid-cols-[34px_1fr] gap-2 rounded-2xl border border-white/10 bg-pitch/55 p-3 sm:grid-cols-[44px_1fr_auto_1fr] sm:gap-3 sm:rounded-3xl",
+                            "grid grid-cols-1 gap-3 rounded-2xl border border-white/10 bg-pitch/55 p-3 sm:grid-cols-[44px_1fr_auto_1fr] sm:gap-3 sm:rounded-3xl",
                             isClosedForTips && "border-flare/25 bg-flare/5",
                           )}
                         >
-                          <span className="pt-1 text-sm font-bold text-white/40">#{match.id}</span>
+                          <span className="text-sm font-bold text-white/40 sm:pt-1">#{match.id}</span>
                           <div>
                             <p className="font-bold"><TeamLabel team={match.resolvedHome} /></p>
                             <p className="text-xs text-white/40">
@@ -3863,7 +3863,7 @@ function KnockoutPredictionPanel({
                             </p>
                             {match.resolvedHome !== match.home && <p className="text-xs text-white/30"><TeamLabel team={match.home} /></p>}
                           </div>
-                          <div className="col-span-2 flex items-center justify-center gap-2 py-1 sm:col-span-1 sm:py-0">
+                          <div className="flex items-center justify-center gap-2 py-1 sm:py-0">
                             <ScoreField
                               label={`${match.resolvedHome} mål`}
                               value={prediction?.score?.home}
@@ -3880,7 +3880,7 @@ function KnockoutPredictionPanel({
                               tone="flare"
                             />
                           </div>
-                          <div className="col-span-2 text-left sm:col-span-1 sm:text-right">
+                          <div className="text-left sm:text-right">
                             <p className="font-bold"><TeamLabel team={match.resolvedAway} /></p>
                             {match.resolvedAway !== match.away && <p className="text-xs text-white/30"><TeamLabel team={match.away} /></p>}
                             <p className="text-xs text-white/40">Vidare: {winner}</p>
