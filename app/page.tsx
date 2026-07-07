@@ -302,12 +302,14 @@ function ScoreField({
   disabled,
   onChange,
   tone = "volt",
+  compactMobile = false,
 }: {
   label: string;
   value?: number;
   disabled: boolean;
   onChange: (value: number) => void;
   tone?: "volt" | "flare";
+  compactMobile?: boolean;
 }) {
   const focusClass = tone === "flare" ? "focus:border-flare" : "focus:border-volt";
 
@@ -319,7 +321,8 @@ function ScoreField({
         disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
         className={classNames(
-          "h-12 w-20 rounded-2xl border border-white/10 bg-white/10 text-center font-display text-lg font-black outline-none disabled:cursor-not-allowed disabled:opacity-45 sm:hidden",
+          compactMobile ? "h-11 w-14 rounded-xl text-base" : "h-12 w-20 rounded-2xl text-lg",
+          "border border-white/10 bg-white/10 text-center font-display font-black outline-none disabled:cursor-not-allowed disabled:opacity-45 sm:hidden",
           focusClass,
         )}
       >
@@ -3851,25 +3854,26 @@ function KnockoutPredictionPanel({
                         <div
                           key={match.id}
                           className={classNames(
-                            "grid grid-cols-1 gap-3 rounded-2xl border border-white/10 bg-pitch/55 p-3 sm:grid-cols-[44px_1fr_auto_1fr] sm:gap-3 sm:rounded-3xl",
+                            "grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-x-2 gap-y-3 rounded-2xl border border-white/10 bg-pitch/55 p-3 sm:grid-cols-[44px_1fr_auto_1fr] sm:gap-3 sm:rounded-3xl",
                             isClosedForTips && "border-flare/25 bg-flare/5",
                           )}
                         >
-                          <span className="text-sm font-bold text-white/40 sm:pt-1">#{match.id}</span>
-                          <div>
+                          <span className="col-span-3 text-sm font-bold text-white/40 sm:col-span-1 sm:pt-1">#{match.id}</span>
+                          <div className="min-w-0 text-left">
                             <p className="font-bold"><TeamLabel team={match.resolvedHome} /></p>
                             <p className="text-xs text-white/40">
                               {formatDate(match.date)} {match.kickoffTime} · {statusLabel}
                             </p>
                             {match.resolvedHome !== match.home && <p className="text-xs text-white/30"><TeamLabel team={match.home} /></p>}
                           </div>
-                          <div className="flex items-center justify-center gap-2 py-1 sm:py-0">
+                          <div className="flex shrink-0 items-center justify-center gap-1 py-1 sm:gap-2 sm:py-0">
                             <ScoreField
                               label={`${match.resolvedHome} mål`}
                               value={prediction?.score?.home}
                               disabled={!isEditable}
                               onChange={(value) => onChange(match, "home", value)}
                               tone="flare"
+                              compactMobile
                             />
                             <span className="text-white/40">-</span>
                             <ScoreField
@@ -3878,9 +3882,10 @@ function KnockoutPredictionPanel({
                               disabled={!isEditable}
                               onChange={(value) => onChange(match, "away", value)}
                               tone="flare"
+                              compactMobile
                             />
                           </div>
-                          <div className="text-left sm:text-right">
+                          <div className="min-w-0 text-right">
                             <p className="font-bold"><TeamLabel team={match.resolvedAway} /></p>
                             {match.resolvedAway !== match.away && <p className="text-xs text-white/30"><TeamLabel team={match.away} /></p>}
                             <p className="text-xs text-white/40">Vidare: {winner}</p>
